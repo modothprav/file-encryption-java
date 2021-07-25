@@ -56,7 +56,21 @@ public class FileEncryptor {
         }  
     }
 
-    public static void encrypt(String inputPath, String outputPath) throws NoSuchAlgorithmException, NoSuchPaddingException, InvalidKeyException, InvalidAlgorithmParameterException, IOException {
+    /**
+     * Encrypts a plain text input file by outputing an encrypted version. It does this 
+     * generating a 128 bit secret key and initialisation vector which are used as 
+     * specifications during the file encryption process.
+     * 
+     * @param inputPath - A String specifying the Input path of the plaintext file
+     * @param outputPath - A String specifying the Ouput path of the ciphertext file
+     * @throws NoSuchAlgorithmException
+     * @throws NoSuchPaddingException
+     * @throws InvalidKeyException
+     * @throws InvalidAlgorithmParameterException
+     * @throws IOException
+     */
+    public static void encrypt(String inputPath, String outputPath) throws NoSuchAlgorithmException, 
+    NoSuchPaddingException, InvalidKeyException, InvalidAlgorithmParameterException, IOException {
         //This snippet is literally copied from SymmetrixExample
         SecureRandom sr = new SecureRandom();
         byte[] key = new byte[16];
@@ -84,7 +98,7 @@ public class FileEncryptor {
         File encryptedFile = new File(System.getProperty("user.dir").toString() + outputPath);    
         // Create the output file if it doesn't exist
         if (!encryptedFile.exists()) { encryptedFile.createNewFile(); }
-        
+
         // Perform the encryption and Write out to a CipherOutputStream
         try (InputStream fin = Files.newInputStream(inputFilePath);
                 OutputStream fout = new FileOutputStream(encryptedFile);
@@ -101,7 +115,24 @@ public class FileEncryptor {
         LOG.info("Encryption finished, saved at " + encryptedFile);
     }
 
-    public static void decrypt(byte[] key, byte[] initVector, String inputPath, String outputPath) throws NoSuchAlgorithmException, NoSuchPaddingException, InvalidKeyException, InvalidAlgorithmParameterException, IOException {
+    /**
+     * Decrypts a given cipertext file into its original plaintext form. 
+     * A successful decryption occurs when provided with the right key and 
+     * initialisation vector to create the specifications required for decryption.
+     * Will overwrite the resultant output file if it already exists.
+     * 
+     * @param key byte[] - The Key used to originally encrypt the input file 
+     * @param initVector byte[] - The initialisation vector originally used for encryption
+     * @param inputPath String - The input file path (encrypted document)
+     * @param outputPath String - The file path of the resultant decrypted text
+     * @throws NoSuchAlgorithmException
+     * @throws NoSuchPaddingException
+     * @throws InvalidKeyException
+     * @throws InvalidAlgorithmParameterException
+     * @throws IOException
+     */
+    public static void decrypt(byte[] key, byte[] initVector, String inputPath, String outputPath) throws NoSuchAlgorithmException, 
+    NoSuchPaddingException, InvalidKeyException, InvalidAlgorithmParameterException, IOException {
         // Initialize Key and Vector Specifications and the Cipher Mode
         IvParameterSpec iv = new IvParameterSpec(initVector);
         SecretKeySpec skeySpec = new SecretKeySpec(key, ALGORITHM);
