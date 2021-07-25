@@ -4,6 +4,7 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.lang.reflect.Field;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -11,6 +12,7 @@ import java.security.InvalidAlgorithmParameterException;
 import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
+import java.util.Arrays;
 import java.util.Base64;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -38,21 +40,31 @@ public class FileEncryptor {
         final String validCmdMsg = "Valid Encryption command: java FileEncryptor enc [inputFile] [outputFile]\n"
         + "Valid Decryption command: java FileEncryptor dec [Key] [Vector] [inputFile] [outputFile]";
 
-        if (args.length < 3) { throw new IllegalArgumentException("No Enough Argunments specified\n" + validCmdMsg); }
+        if (args.length < 3) { throw new IllegalArgumentException("Not Enough Argunments specified\n" + validCmdMsg); }
 
-        if (args[0].equals("enc")) { // Encrypt
-            encrypt(args[1], args[2]);
-        } else if (args[0].equals("dec")) { // Decrypt
+        // Convert String arguments to char arrays
+        char[][] charArgs = Util.getCharArgunments(args);
+        
+        // Wipe all string argunments
+        //for (int i = 0; i < args.length; i++) {
+            //Util.wipeString(args[i]);
+        //}
+        args = null;
 
-            if (args.length < 5) { throw new IllegalArgumentException("Not Enough Argunments Provided for Decryption\n" + validCmdMsg ); }
+        if (Arrays.equals(charArgs[0], "enc".toCharArray())) { // Encrypt
+            encrypt(new String(charArgs[1]), new String(charArgs[2]));
+        
+        } else if (Arrays.equals(charArgs[0], "dec".toCharArray())) { // Decrypt
+
+            if (charArgs.length < 5) { throw new IllegalArgumentException("Not Enough Argunments Provided for Decryption\n" + validCmdMsg ); }
 
             // Decode the Base64 argunments
-            byte[] key = Base64.getDecoder().decode(args[1]);
-            byte[] initVector = Base64.getDecoder().decode(args[2]);
+            byte[] key = Base64.getDecoder().decode(Util.convertCharToByte(charArgs[1]));
+            byte[] initVector = Base64.getDecoder().decode(Util.convertCharToByte(charArgs[2]));
             
-            decrypt(key, initVector, args[3], args[4]);
+            decrypt(key, initVector, new String(charArgs[3]), new String(charArgs[4]));
         } else {
-            throw new IllegalArgumentException("Neither enc (encrypt) or dec (decrypt) option specified");
+            throw new IllegalArgumentException("Neither enc (encrypt) or dec (decrypt) option specified\n" + validCmdMsg);
         }  
     }
 
