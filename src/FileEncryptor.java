@@ -12,6 +12,7 @@ import java.security.InvalidAlgorithmParameterException;
 import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
+import java.security.spec.ECField;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.logging.Level;
@@ -105,9 +106,9 @@ public class FileEncryptor {
         cipher.init(Cipher.ENCRYPT_MODE, skeySpec, iv);
 
         // Will throw an IOException if input file doens't exist 
-        final Path inputFilePath = Paths.get(System.getProperty("user.dir").toString() + inputPath);
+        final Path inputFilePath = Paths.get(inputPath);
     
-        File encryptedFile = new File(System.getProperty("user.dir").toString() + outputPath);    
+        File encryptedFile = new File(outputPath);    
         // Create the output file if it doesn't exist
         if (!encryptedFile.exists()) { encryptedFile.createNewFile(); }
 
@@ -152,9 +153,9 @@ public class FileEncryptor {
         cipher.init(Cipher.DECRYPT_MODE, skeySpec, iv);
 
         // Will throw and IOException if the input file doesn't exist
-        Path encryptedFile = Paths.get(System.getProperty("user.dir").toString() + inputPath);
+        Path encryptedFile = Paths.get(inputPath);
 
-        File decryptedFile = new File(System.getProperty("user.dir").toString() + outputPath);
+        File decryptedFile = new File(outputPath);
         // Create a new Decrypted file if it doesn't exist
         if (!decryptedFile.exists()) { decryptedFile.createNewFile(); }
         
