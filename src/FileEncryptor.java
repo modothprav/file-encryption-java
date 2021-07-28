@@ -1,10 +1,8 @@
 import java.io.File;
-import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.lang.reflect.Field;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -12,7 +10,6 @@ import java.security.InvalidAlgorithmParameterException;
 import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
-import java.security.spec.ECField;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.logging.Level;
@@ -45,12 +42,9 @@ public class FileEncryptor {
 
         // Convert String arguments to char arrays
         char[][] charArgs = Util.getCharArgunments(args);
-        
-        // Wipe all string argunments
-        //for (int i = 0; i < args.length; i++) {
-            //Util.wipeString(args[i]);
-        //}
-        args = null;
+
+        // Clear String argunments
+        Arrays.fill(args, null);
 
         if (Arrays.equals(charArgs[0], "enc".toCharArray())) { // Encrypt
             encrypt(new String(charArgs[1]), new String(charArgs[2]));
@@ -64,6 +58,17 @@ public class FileEncryptor {
             byte[] initVector = Base64.getDecoder().decode(Util.convertCharToByte(charArgs[2]));
             
             decrypt(key, initVector, new String(charArgs[3]), new String(charArgs[4]));
+
+            // Tear Down, clear arrays
+            Arrays.fill(key, (byte) 0);
+            Arrays.fill(initVector, (byte) 0);
+            key = null; initVector = null;
+
+            for (int i = 0; i < charArgs.length; i++) {
+                Arrays.fill(charArgs[i], '\0');
+            }
+            charArgs = null;
+
         } else {
             throw new IllegalArgumentException("Neither enc (encrypt) or dec (decrypt) option specified\n" + validCmdMsg);
         }  
@@ -90,8 +95,6 @@ public class FileEncryptor {
         sr.nextBytes(key); // 128 bit key
         byte[] initVector = new byte[16];
         sr.nextBytes(initVector); // 16 bytes IV
-        System.out.println("Random key = " + Util.bytesToHex(key));
-        System.out.println("initVector = " + Util.bytesToHex(initVector));
 
         // Display the Base64 encoded versions of Key and Vector
         System.out.print("\n<---------------------------------------->\n");
