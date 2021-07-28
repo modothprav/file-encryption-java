@@ -107,35 +107,57 @@ public class FileEncryptor {
         SecretKeySpec skeySpec = new SecretKeySpec(key, ALGORITHM);
         Cipher cipher = Cipher.getInstance(CIPHER);
         cipher.init(Cipher.ENCRYPT_MODE, skeySpec, iv);
-
-        // Will throw an IOException if input file doens't exist 
-        final Path inputFilePath = Paths.get(inputPath);
     
-        File encryptedFile = new File(outputPath);    
+        File outputFile = new File(outputPath);    
         // Create the output file if it doesn't exist
-        if (!encryptedFile.exists()) { encryptedFile.createNewFile(); }
+        if (!outputFile.exists()) { outputFile.createNewFile(); }
 
-        // Perform the encryption and Write out to a CipherOutputStream
-        try (InputStream fin = Files.newInputStream(inputFilePath);
-                OutputStream fout = new FileOutputStream(encryptedFile);
-                CipherOutputStream cipherOut = new CipherOutputStream(fout, cipher) {
+        final Path plaintextFile = Paths.get(inputPath);
+        final Path encryptedFile = Paths.get(outputPath);
+
+        // Write plaintext into ciphertext
+        if (writeEncryptedFile(plaintextFile, encryptedFile, cipher)) {
+            LOG.info("Encryption finished, saved at " + encryptedFile);
+        } else {
+            LOG.log(Level.WARNING, "Encryption Failed, Ensure Valid File Paths are specified");
+        }
+    }
+
+    /**
+     * Writes an encrypted version of the input file, into the output file.
+     * Uses a FileInputStream to read the plaintext file and wraps the OutputStream
+     * with a CipherOutStream to write an encrypted version of the plaintext file.
+     * Returns True if the encryption writing was successfull, False otherwise.
+     *  
+     * @param inputPath Path The file path of the input file (plaintext)
+     * @param outputPath Path The file path of the output file (ciphertext)
+     * @param cipher Cipher The cipher instance initialized with the appropriate 
+     * specifications in ENCRYPT mode
+     * @return boolean True if encryption successful False otherwise
+     */
+    private static boolean writeEncryptedFile(Path inputPath, Path outputPath, Cipher cipher) {
+        try (InputStream fin = Files.newInputStream(inputPath);
+            OutputStream fout = Files.newOutputStream(outputPath);
+            CipherOutputStream cipherOut = new CipherOutputStream(fout, cipher) {
         }) {
             final byte[] bytes = new byte[1024];
             for(int length = fin.read(bytes); length != -1; length = fin.read(bytes)){
                 cipherOut.write(bytes, 0, length);
             }
         } catch (IOException e) {
-            LOG.log(Level.INFO, "Unable to encrypt", e);
+            LOG.log(Level.INFO, "Unable to encrypt");
+            return false;
         }
-        
-        LOG.info("Encryption finished, saved at " + encryptedFile);
+
+        return true;
     }
 
     /**
      * Decrypts a given cipertext file into its original plaintext form. 
      * A successful decryption occurs when provided with the right key and 
-     * initialisation vector to create the specifications required for decryption.
-     * Will overwrite the resultant output file if it already exists.
+     * initialisation vector to create the Cipher specifications required 
+     * for decryption. Will overwrite the resultant output file if it 
+     * already exists.
      * 
      * @param key byte[] - The Key used to originally encrypt the input file 
      * @param initVector byte[] - The initialisation vector originally used for encryption
@@ -155,17 +177,36 @@ public class FileEncryptor {
         Cipher cipher = Cipher.getInstance(CIPHER);
         cipher.init(Cipher.DECRYPT_MODE, skeySpec, iv);
 
-        // Will throw and IOException if the input file doesn't exist
-        Path encryptedFile = Paths.get(inputPath);
-
-        File decryptedFile = new File(outputPath);
+        File outputFile = new File(outputPath);
         // Create a new Decrypted file if it doesn't exist
-        if (!decryptedFile.exists()) { decryptedFile.createNewFile(); }
+        if (!outputFile.exists()) { outputFile.createNewFile(); }
+
+        final Path encryptedFile = Paths.get(inputPath);
+        final Path decryptedFile = Paths.get(outputPath);
         
-        // Perform decryption by tyaking in data from a CipherInputStream
-        try(InputStream encryptedData = Files.newInputStream(encryptedFile);
+        if (writeDecryptedFile(encryptedFile, decryptedFile, cipher)) {
+            LOG.info("Decryption complete, open " + decryptedFile);
+        } else {
+            LOG.log(Level.SEVERE, "Ensure the correct Key, Vector, and Files pahts are specified");
+        }
+    }
+
+    /**
+     * Reads an encrypted file by wrapping an InputStream with a CipherInputStream
+     * The encrypted files gets decrypted and written out to the output file. 
+     * For a successful decryption the Cipher new to be initialized in DECRYPT mode
+     * with the correct key and vector specifications. 
+     * 
+     * @param inputPath Path The input file path (encrypted file)
+     * @param outputPath Path The output file path (decrypted file)
+     * @param cipher Cipher The cipher instance initialized with the appropriate 
+     * specifications in DECRYPT mode
+     * @return boolean True if Decryption is successful False otherwise
+     */
+    private static boolean writeDecryptedFile(Path inputPath, Path outputPath, Cipher cipher) {
+        try(InputStream encryptedData = Files.newInputStream(inputPath);
             CipherInputStream decryptStream = new CipherInputStream(encryptedData, cipher);
-            OutputStream decryptedOut = new FileOutputStream(decryptedFile)) {
+            OutputStream decryptedOut = Files.newOutputStream(outputPath)) {
             
                 final byte[] bytes = new byte[1024];
                 for(int length=decryptStream.read(bytes); length!=-1; length = decryptStream.read(bytes)){
@@ -173,9 +214,9 @@ public class FileEncryptor {
                 }
 
         } catch (IOException ex) {
-            Logger.getLogger(FileEncryptor.class.getName()).log(Level.SEVERE, "Unable to decrypt", ex);
+            Logger.getLogger(FileEncryptor.class.getName()).log(Level.SEVERE, "Unable to decrypt");
+            return false;
         }
-        
-        LOG.info("Decryption complete, open " + decryptedFile);
+        return true;
     }
 }
