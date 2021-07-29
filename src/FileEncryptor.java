@@ -75,7 +75,7 @@ public class FileEncryptor {
 
     /**
      * Encrypts a plain text input file by outputing an encrypted version. It does this 
-     * generating a 128 bit secret key and initialisation vector which are used as 
+     * generating a 128 bit secret key and initialisation vector which are used as the 
      * specifications during the file encryption process.
      * 
      * @param inputPath - A String specifying the Input path of the plaintext file
@@ -101,7 +101,7 @@ public class FileEncryptor {
         System.out.println("IV is: " + Base64.getEncoder().encodeToString(initVector));
         System.out.print("<---------------------------------------->\n\n");
 
-        // Initialize Key and Vector Specfications and the Cipher mode
+        // Initialize Key, Vector Specfications and the Cipher mode
         IvParameterSpec iv = new IvParameterSpec(initVector);
         SecretKeySpec skeySpec = new SecretKeySpec(key, ALGORITHM);
         Cipher cipher = Cipher.getInstance(CIPHER);
@@ -177,7 +177,7 @@ public class FileEncryptor {
         cipher.init(Cipher.DECRYPT_MODE, skeySpec, iv);
 
         File outputFile = new File(outputPath);
-        // Create a new Decrypted file if it doesn't exist
+        // Create a new Output file if it doesn't exist
         if (!outputFile.exists()) { outputFile.createNewFile(); }
 
         final Path encryptedFile = Paths.get(inputPath);
@@ -186,7 +186,7 @@ public class FileEncryptor {
         if (writeDecryptedFile(encryptedFile, decryptedFile, cipher)) {
             LOG.info("Decryption complete, open " + decryptedFile);
         } else {
-            LOG.log(Level.SEVERE, "Ensure the correct Key, Vector, and Files pahts are specified");
+            LOG.log(Level.SEVERE, "Ensure the correct Key, Vector, and Files paths are specified");
         }
     }
 
