@@ -37,7 +37,7 @@ public class FileEncryptor {
         final String validCmdMsg = "Valid Encryption command: java FileEncryptor enc [inputFile] [outputFile]\n"
         + "Valid Decryption command: java FileEncryptor dec [Key] [Vector] [inputFile] [outputFile]";
 
-        if (args.length < 3) { throw new IllegalArgumentException("Not Enough Argunments specified\n" + validCmdMsg); }
+        if (args.length < 1) { throw new IllegalArgumentException("Not Enough Argunments specified\n" + validCmdMsg); }
 
         // Convert String arguments to char arrays
         char[][] charArgs = Util.getCharArgunments(args);
@@ -68,6 +68,8 @@ public class FileEncryptor {
             }
             charArgs = null;
 
+        } else if (Arrays.equals(charArgs[0], "key".toCharArray())) {
+            generateKey();
         } else {
             throw new IllegalArgumentException("Neither enc (encrypt) or dec (decrypt) option specified\n" + validCmdMsg);
         }  
@@ -149,6 +151,19 @@ public class FileEncryptor {
         }
 
         return true;
+    }
+
+    /**
+     * This function is invoked when the 'key' option is specified
+     * in the command line. Generates a random 128 bit key which 
+     * gets printed out to the command line for marking purposes
+     * and ease of testing for Part 2.
+     */
+    private static void generateKey() {
+        SecureRandom sr = new SecureRandom();
+        byte[] key = new byte[16];
+        sr.nextBytes(key);
+        System.out.println("\nSecret Key is: " + Base64.getEncoder().encodeToString(key) + "\n");
     }
 
     /**
