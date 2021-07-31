@@ -1,4 +1,5 @@
 import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -21,6 +22,7 @@ import javax.crypto.spec.IvParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
 
 
+
 /**
  *
  * @author Erik Costlow
@@ -34,8 +36,9 @@ public class FileEncryptor {
 
     public static void main(String[] args) throws Exception {
         // Error Message
-        final String validCmdMsg = "Valid Encryption command: java FileEncryptor enc [inputFile] [outputFile]\n"
-        + "Valid Decryption command: java FileEncryptor dec [Key] [Vector] [inputFile] [outputFile]";
+        final String validCmdMsg = "Valid Encryption command: java FileEncryptor enc [Key] [inputFile] [outputFile]\n"
+        + "Valid Decryption command: java FileEncryptor dec [Key] [inputFile] [outputFile]\n"
+        + "Valid Key generation command: java FileEncryptor key";
 
         if (args.length < 1) { throw new IllegalArgumentException("Not Enough Argunments specified\n" + validCmdMsg); }
 
@@ -45,34 +48,45 @@ public class FileEncryptor {
         // Clear String argunments
         Arrays.fill(args, null);
 
-        if (Arrays.equals(charArgs[0], "enc".toCharArray())) { // Encrypt
-            encrypt(new String(charArgs[1]), new String(charArgs[2]));
-        
-        } else if (Arrays.equals(charArgs[0], "dec".toCharArray())) { // Decrypt
-
-            if (charArgs.length < 5) { throw new IllegalArgumentException("Not Enough Argunments Provided for Decryption\n" + validCmdMsg ); }
-
-            // Decode the Base64 argunments
-            byte[] key = Base64.getDecoder().decode(Util.convertCharToByte(charArgs[1]));
-            byte[] initVector = Base64.getDecoder().decode(Util.convertCharToByte(charArgs[2]));
-            
-            decrypt(key, initVector, new String(charArgs[3]), new String(charArgs[4]));
-
-            // Tear Down, clear arrays
-            Arrays.fill(key, (byte) 0);
-            Arrays.fill(initVector, (byte) 0);
-            key = null; initVector = null;
-
-            for (int i = 0; i < charArgs.length; i++) {
-                Arrays.fill(charArgs[i], '\0');
-            }
-            charArgs = null;
-
-        } else if (Arrays.equals(charArgs[0], "key".toCharArray())) {
+        // Generate and display key, for testing and marking purposes
+        if (Arrays.equals(charArgs[0], "key".toCharArray())) {
             generateKey();
-        } else {
+            return;
+        }
+
+        if (charArgs.length < 4) { 
+            throw new IllegalArgumentException("Not Enough Argunments Provided\n" + validCmdMsg ); 
+        } 
+
+        // Options Available
+        char[] enc = "enc".toCharArray();
+        char[] dec = "dec".toCharArray();
+
+        if (!Arrays.equals(charArgs[0], enc) && !Arrays.equals(charArgs[0], dec)) {
             throw new IllegalArgumentException("Neither enc (encrypt) or dec (decrypt) option specified\n" + validCmdMsg);
-        }  
+        }
+
+        byte[] key = Base64.getDecoder().decode(Util.convertCharToByte(charArgs[1]));
+
+        if (Arrays.equals(charArgs[0], enc)) { // Encrypt
+
+            encrypt(key, new String(charArgs[2]), new String(charArgs[3]));
+        
+        } else if (Arrays.equals(charArgs[0], dec)) { // Decrypt
+                        
+            decrypt(key, new String(charArgs[2]), new String(charArgs[3]));
+
+        }
+
+        // Tear Down, clear arrays
+        Arrays.fill(key, (byte) 0);
+        Arrays.fill(enc, '\0');
+        Arrays.fill(dec, '\0');
+
+        for (int i = 0; i < charArgs.length; i++) {
+            Arrays.fill(charArgs[i], '\0');
+        }
+        charArgs = null; key = null; dec = null; enc = null; 
     }
 
     /**
@@ -88,18 +102,15 @@ public class FileEncryptor {
      * @throws InvalidAlgorithmParameterException
      * @throws IOException
      */
-    public static void encrypt(String inputPath, String outputPath) throws NoSuchAlgorithmException, 
+    public static void encrypt(byte[] key, String inputPath, String outputPath) throws NoSuchAlgorithmException, 
     NoSuchPaddingException, InvalidKeyException, InvalidAlgorithmParameterException, IOException {
-        //This snippet is literally copied from SymmetrixExample
+        //Generate Initilisation Vector
         SecureRandom sr = new SecureRandom();
-        byte[] key = new byte[16];
-        sr.nextBytes(key); // 128 bit key
         byte[] initVector = new byte[16];
         sr.nextBytes(initVector); // 16 bytes IV
 
-        // Display the Base64 encoded versions of Key and Vector
+        // Display the Base64 encoded versions of Vector
         System.out.print("\n<---------------------------------------->\n");
-        System.out.println("Secret Key is: " + Base64.getEncoder().encodeToString(key));
         System.out.println("IV is: " + Base64.getEncoder().encodeToString(initVector));
         System.out.print("<---------------------------------------->\n\n");
 
@@ -137,13 +148,20 @@ public class FileEncryptor {
      * @return boolean True if encryption successful False otherwise
      */
     private static boolean writeEncryptedFile(Path inputPath, Path outputPath, Cipher cipher) {
-        try (InputStream fin = Files.newInputStream(inputPath);
-            OutputStream fout = Files.newOutputStream(outputPath);
-            CipherOutputStream cipherOut = new CipherOutputStream(fout, cipher) {
-        }) {
-            final byte[] bytes = new byte[1024];
-            for(int length = fin.read(bytes); length != -1; length = fin.read(bytes)){
-                cipherOut.write(bytes, 0, length);
+        try (InputStream fin = Files.newInputStream(inputPath);) {
+            
+            try (FileOutputStream fout = new FileOutputStream(outputPath.toFile());) {
+                fout.write(cipher.getIV());
+                System.out.println(Base64.getEncoder().encodeToString(cipher.getIV()));
+
+                try (CipherOutputStream cipherOut = new CipherOutputStream(fout, cipher);) {
+                    final byte[] bytes = new byte[1024];
+                    for(int length = fin.read(bytes); length != -1; length = fin.read(bytes)){
+                        cipherOut.write(bytes, 0, length);
+                    }
+                
+                }
+
             }
         } catch (IOException e) {
             LOG.log(Level.INFO, "Unable to encrypt");
@@ -183,22 +201,24 @@ public class FileEncryptor {
      * @throws InvalidAlgorithmParameterException
      * @throws IOException
      */
-    public static void decrypt(byte[] key, byte[] initVector, String inputPath, String outputPath) throws NoSuchAlgorithmException, 
+    public static void decrypt(byte[] key, String inputPath, String outputPath) throws NoSuchAlgorithmException, 
     NoSuchPaddingException, InvalidKeyException, InvalidAlgorithmParameterException, IOException {
-        // Initialize Key and Vector Specifications and the Cipher Mode
-        IvParameterSpec iv = new IvParameterSpec(initVector);
-        SecretKeySpec skeySpec = new SecretKeySpec(key, ALGORITHM);
-        Cipher cipher = Cipher.getInstance(CIPHER);
-        cipher.init(Cipher.DECRYPT_MODE, skeySpec, iv);
-
+        
         File outputFile = new File(outputPath);
         // Create a new Output file if it doesn't exist
         if (!outputFile.exists()) { outputFile.createNewFile(); }
 
         final Path encryptedFile = Paths.get(inputPath);
         final Path decryptedFile = Paths.get(outputPath);
+
+        // Initialize Key and Vector Specifications and the Cipher Mode
+        //IvParameterSpec iv = new IvParameterSpec((initVector));
+        //SecretKeySpec skeySpec = new SecretKeySpec(key, ALGORITHM);
+        //Cipher cipher = Cipher.getInstance(CIPHER);
+        //cipher.init(Cipher.DECRYPT_MODE, skeySpec, iv);
+
         
-        if (writeDecryptedFile(encryptedFile, decryptedFile, cipher)) {
+        if (writeDecryptedFile(encryptedFile, decryptedFile, key)) {
             LOG.info("Decryption complete, open " + decryptedFile);
         } else {
             LOG.log(Level.SEVERE, "Ensure the correct Key, Vector, and Files paths are specified");
@@ -217,19 +237,38 @@ public class FileEncryptor {
      * specifications in DECRYPT mode
      * @return boolean True if Decryption is successful False otherwise
      */
-    private static boolean writeDecryptedFile(Path inputPath, Path outputPath, Cipher cipher) {
-        try(InputStream encryptedData = Files.newInputStream(inputPath);
-            CipherInputStream decryptStream = new CipherInputStream(encryptedData, cipher);
-            OutputStream decryptedOut = Files.newOutputStream(outputPath)) {
-            
-                final byte[] bytes = new byte[1024];
-                for(int length=decryptStream.read(bytes); length!=-1; length = decryptStream.read(bytes)){
-                    decryptedOut.write(bytes, 0, length);
-                }
+    private static boolean writeDecryptedFile(Path inputPath, Path outputPath, byte[] key) {
+        try (InputStream encryptedData = Files.newInputStream(inputPath);){
+        
+            byte[] initVector = new byte[16];
+            encryptedData.read(initVector);
 
+            IvParameterSpec iv = new IvParameterSpec((initVector));
+            SecretKeySpec skeySpec = new SecretKeySpec(key, ALGORITHM);
+            Cipher cipher = Cipher.getInstance(CIPHER);
+            cipher.init(Cipher.DECRYPT_MODE, skeySpec, iv);
+
+            try (CipherInputStream decryptStream = new CipherInputStream(encryptedData, cipher);) {
+                try (OutputStream decryptedOut = Files.newOutputStream(outputPath);) {
+                    final byte[] bytes = new byte[1024];
+                    for(int length=decryptStream.read(bytes); length!=-1; length = decryptStream.read(bytes)){
+                        decryptedOut.write(bytes, 0, length);
+                    }
+                }
+            }
+            
         } catch (IOException ex) {
-            Logger.getLogger(FileEncryptor.class.getName()).log(Level.SEVERE, "Unable to decrypt");
+            ex.printStackTrace();
+            //Logger.getLogger(FileEncryptor.class.getName()).log(Level.SEVERE, "Unable to decrypt");
             return false;
+        } catch (NoSuchAlgorithmException e) {
+            e.printStackTrace();
+        } catch (NoSuchPaddingException e) {
+            e.printStackTrace();
+        } catch (InvalidKeyException e) {
+            e.printStackTrace();
+        } catch (InvalidAlgorithmParameterException e) {
+            e.printStackTrace();
         }
         return true;
     }
