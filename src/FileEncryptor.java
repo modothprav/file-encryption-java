@@ -96,8 +96,11 @@ public class FileEncryptor {
     /**
      * Encrypts a plain text input file by outputing an encrypted version. It does this 
      * generating a 128 bit secret key and initialisation vector which are used as the 
-     * specifications during the file encryption process.
+     * specifications during the file encryption process. A message aithentication code 
+     * is also computed with the intialisaton vector and plaintext values, hence these 
+     * values can be checked for tampering during decryption.
      * 
+     * @param key byte[] The secrect key which will be used to encrypt the file
      * @param inputPath - A String specifying the Input path of the plaintext file
      * @param outputPath - A String specifying the Ouput path of the ciphertext file
      * @throws NoSuchAlgorithmException
@@ -259,20 +262,20 @@ public class FileEncryptor {
      * The encrypted files gets decrypted and written out to the output file. 
      * For a successful decryption the Cipher needs to be initialized in DECRYPT mode
      * with the correct key and vector specifications. The IV is read from the encrypted
-     * file as it was saved unencrypted during the encryption process. 
+     * file as it was saved unencrypted during the encryption process. Decryption will 
+     * also fail if the computed authentication code doesn't match with the given 
+     * authentication code, which it also reads from the encrpted file.
      * 
      * @param inputPath Path The input file path (encrypted file)
      * @param outputPath Path The output file path (decrypted file)
-     * @param cipher Cipher The cipher instance initialized with the appropriate 
-     * specifications in DECRYPT mode
+     * @param key byte[] The secret key which will be used for decryption
      * @return boolean True if Decryption is successful False otherwise
      * @throws NoSuchPaddingException
      * @throws NoSuchAlgorithmException
      * @throws InvalidKeyException
      * @throws InvalidAlgorithmParameterException
      */
-    private static boolean writeDecryptedFile(Path inputPath, Path outputPath, byte[] key) throws NoSuchAlgorithmException, 
-    NoSuchPaddingException, InvalidKeyException, InvalidAlgorithmParameterException {
+    private static boolean writeDecryptedFile(Path inputPath, Path outputPath, byte[] key) throws NoSuchAlgorithmException, NoSuchPaddingException, InvalidKeyException, InvalidAlgorithmParameterException {
         try (InputStream encryptedData = Files.newInputStream(inputPath);){
         
             // Read metadata from the input file
@@ -290,8 +293,6 @@ public class FileEncryptor {
             // Initialise cipher and HMac
             Cipher cipher = Cipher.getInstance(CIPHER);
             cipher.init(Cipher.DECRYPT_MODE, skeySpec, iv);
-            Mac hmac = Mac.getInstance(HASH_AlGORITHM);
-            hmac.init(macKey);
 
             // Read cipertext data and write plaintext data
             try (CipherInputStream decryptStream = new CipherInputStream(encryptedData, cipher);) {
@@ -304,6 +305,9 @@ public class FileEncryptor {
             } 
             
             // Check authentication and file integerity
+            Mac hmac = Mac.getInstance(HASH_AlGORITHM);
+            hmac.init(macKey);
+
             hmac.update(initVector);
             byte[] computedMac = computeMac(hmac, outputPath);
             if (!Arrays.equals(givenMac, computedMac)) {
@@ -312,7 +316,6 @@ public class FileEncryptor {
                 
             LOG.info("Authentication passed, file integrity maintained");
             
-
         } catch (IOException ex) {
             Logger.getLogger(FileEncryptor.class.getName()).log(Level.SEVERE, "IOException caught");
             return false;
