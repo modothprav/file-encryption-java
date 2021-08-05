@@ -17,6 +17,7 @@ import java.util.logging.Logger;
 import javax.crypto.Cipher;
 import javax.crypto.CipherInputStream;
 import javax.crypto.CipherOutputStream;
+import javax.crypto.Mac;
 import javax.crypto.NoSuchPaddingException;
 import javax.crypto.spec.IvParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
@@ -31,6 +32,7 @@ public class FileEncryptor {
     private static final Logger LOG = Logger.getLogger(FileEncryptor.class.getSimpleName());
 
     private static final String ALGORITHM = "AES";
+    private static final String HASH_AlGORITHM = "HmacSHA256";
     private static final String CIPHER = "AES/CBC/PKCS5PADDING";
 
     public static void main(String[] args) throws Exception {
@@ -116,11 +118,16 @@ public class FileEncryptor {
         System.out.println("IV is: " + Base64.getEncoder().encodeToString(initVector));
         System.out.print("<---------------------------------------->\n\n");
 
-        // Initialize Key, Vector Specfications and the Cipher mode
+        // Initialize Vector and Keys
         IvParameterSpec iv = new IvParameterSpec(initVector);
         SecretKeySpec skeySpec = new SecretKeySpec(key, ALGORITHM);
+        SecretKeySpec macKey = new SecretKeySpec(key, HASH_AlGORITHM);
+
+        // Initialize cipher and Mac
         Cipher cipher = Cipher.getInstance(CIPHER);
         cipher.init(Cipher.ENCRYPT_MODE, skeySpec, iv);
+        Mac hmac = Mac.getInstance(HASH_AlGORITHM);
+        hmac.init(macKey);
     
         File outputFile = new File(outputPath);    
         // Create the output file if it doesn't exist
@@ -129,8 +136,10 @@ public class FileEncryptor {
         final Path plaintextFile = Paths.get(inputPath);
         final Path encryptedFile = Paths.get(outputPath);
 
+        byte[] mac = computeMac(hmac, initVector, plaintextFile);
+
         // Write plaintext into ciphertext
-        if (writeEncryptedFile(plaintextFile, encryptedFile, cipher)) {
+        if (writeEncryptedFile(plaintextFile, encryptedFile, cipher, mac)) {
             LOG.info("Encryption finished, saved at " + encryptedFile);
         } else {
             LOG.log(Level.WARNING, "Encryption Failed");
@@ -151,11 +160,15 @@ public class FileEncryptor {
      * specifications in ENCRYPT mode
      * @return boolean True if encryption successful False otherwise
      */
-    private static boolean writeEncryptedFile(Path inputPath, Path outputPath, Cipher cipher) {
+    private static boolean writeEncryptedFile(Path inputPath, Path outputPath, Cipher cipher, byte[] mac) {
         try (InputStream fin = Files.newInputStream(inputPath);) {
             
             try (FileOutputStream fout = new FileOutputStream(outputPath.toFile());) {
+                // Write Metadata
+                fout.write(cipher.getIV().length);
                 fout.write(cipher.getIV());
+                fout.write(mac.length);
+                fout.write(mac);
 
                 try (CipherOutputStream cipherOut = new CipherOutputStream(fout, cipher);) {
                     final byte[] bytes = new byte[1024];
@@ -170,6 +183,20 @@ public class FileEncryptor {
         }
 
         return true;
+    }
+
+    private static byte[] computeMac(Mac hmac, byte[] initVector, Path filePath) {
+        hmac.update(initVector);
+        try (InputStream fin = Files.newInputStream(filePath);) {
+            final byte[] bytes = new byte[1024];
+            for(int length = fin.read(bytes); length != -1; length = fin.read(bytes)){
+                hmac.update(bytes, 0, length);
+            }
+        } catch (IOException e) {
+
+        }
+
+        return hmac.doFinal();
     }
 
     /**
@@ -238,14 +265,21 @@ public class FileEncryptor {
         try (InputStream encryptedData = Files.newInputStream(inputPath);){
         
             // Read metadata from the input file
-            byte[] initVector = new byte[16];
+            byte[] initVector = new byte[encryptedData.read()];
             encryptedData.read(initVector);
-
-            // Initialise cipher, IV and key specifications
+            byte[] givenMac = new byte[encryptedData.read()];
+            encryptedData.read(givenMac);
+            
+            // Create key specifications
             IvParameterSpec iv = new IvParameterSpec((initVector));
             SecretKeySpec skeySpec = new SecretKeySpec(key, ALGORITHM);
+            SecretKeySpec macKey = new SecretKeySpec(key, HASH_AlGORITHM);
+            
+            // Initialise cipher and HMac
             Cipher cipher = Cipher.getInstance(CIPHER);
             cipher.init(Cipher.DECRYPT_MODE, skeySpec, iv);
+            Mac hmac = Mac.getInstance(HASH_AlGORITHM);
+            hmac.init(macKey);
 
             // Read cipertext data and write plaintext data
             try (CipherInputStream decryptStream = new CipherInputStream(encryptedData, cipher);) {
@@ -255,7 +289,16 @@ public class FileEncryptor {
                         decryptedOut.write(bytes, 0, length);
                     }
                 }
-            }    
+            } 
+            
+            // Check authentication and file integerity
+            byte[] computedMac = computeMac(hmac, initVector, outputPath);
+            if (!Arrays.equals(givenMac, computedMac)) {
+                throw new SecurityException("Authentication failed, file may have been tampered with");
+            } else {
+                LOG.info("Authentication passed, file integrity maintained");
+            }
+
         } catch (IOException ex) {
             Logger.getLogger(FileEncryptor.class.getName()).log(Level.SEVERE, "IOException caught");
             return false;
@@ -266,6 +309,7 @@ public class FileEncryptor {
         } catch (InvalidAlgorithmParameterException e) {
             Logger.getLogger(FileEncryptor.class.getName()).log(Level.SEVERE, "InvalidAlgorithmParameterException caught," 
             + " file may have been modified, or invalid key was specified.");
+            return false;
         }
         return true;
     }
