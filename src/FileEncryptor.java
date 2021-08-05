@@ -113,11 +113,6 @@ public class FileEncryptor {
         byte[] initVector = new byte[16];
         sr.nextBytes(initVector); // 16 bytes IV
 
-        // Display the Base64 encoded versions of Vector
-        System.out.print("\n<---------------------------------------->\n");
-        System.out.println("IV is: " + Base64.getEncoder().encodeToString(initVector));
-        System.out.print("<---------------------------------------->\n\n");
-
         // Initialize Vector and Keys
         IvParameterSpec iv = new IvParameterSpec(initVector);
         SecretKeySpec skeySpec = new SecretKeySpec(key, ALGORITHM);
@@ -136,7 +131,15 @@ public class FileEncryptor {
         final Path plaintextFile = Paths.get(inputPath);
         final Path encryptedFile = Paths.get(outputPath);
 
-        byte[] mac = computeMac(hmac, initVector, plaintextFile);
+        // Compute Mac for authentication
+        hmac.update(initVector);
+        byte[] mac = computeMac(hmac, plaintextFile);
+
+        // Display the Base64 encoded versions of Vector and computed mac
+        System.out.print("\n<---------------------------------------->\n");
+        System.out.println("IV is: " + Base64.getEncoder().encodeToString(initVector));
+        System.out.println("Computed Mac: " + Base64.getEncoder().encodeToString(mac));
+        System.out.print("<---------------------------------------->\n\n");
 
         // Write plaintext into ciphertext
         if (writeEncryptedFile(plaintextFile, encryptedFile, cipher, mac)) {
@@ -149,8 +152,8 @@ public class FileEncryptor {
     /**
      * Writes an encrypted version of the input file, into a new output file.
      * Uses a FileInputStream to read the plaintext file and wraps the OutputStream
-     * with a CipherOutStream to write an encrypted version of the plaintext file.
-     * Prior to writing the encrypted data, IV is saved as metadata in the encrypted
+     * with a CipherOutStream to write an encrypted version. Prior to writing the 
+     * encrypted data, IV and the computed mac is saved as metadata in the encrypted 
      * file with the use of a FileOutputStream. Returns True if the encryption writing 
      * was successfull, False otherwise.
      *  
@@ -165,9 +168,7 @@ public class FileEncryptor {
             
             try (FileOutputStream fout = new FileOutputStream(outputPath.toFile());) {
                 // Write Metadata
-                fout.write(cipher.getIV().length);
                 fout.write(cipher.getIV());
-                fout.write(mac.length);
                 fout.write(mac);
 
                 try (CipherOutputStream cipherOut = new CipherOutputStream(fout, cipher);) {
@@ -185,8 +186,17 @@ public class FileEncryptor {
         return true;
     }
 
-    private static byte[] computeMac(Mac hmac, byte[] initVector, Path filePath) {
-        hmac.update(initVector);
+    /**
+     * Computes a Message authencitaion code for a given inputfile
+     * Takes in an initialised hmac which gets updated with the file's
+     * contents line by line. Once completed the doFinal method will 
+     * return a byte array with the computed Mac.
+     * 
+     * @param hmac Mac The initialised Mac object
+     * @param filePath Path The file path
+     * @return byte[] The file's computed Mac
+     */
+    private static byte[] computeMac(Mac hmac, Path filePath) {
         try (InputStream fin = Files.newInputStream(filePath);) {
             final byte[] bytes = new byte[1024];
             for(int length = fin.read(bytes); length != -1; length = fin.read(bytes)){
@@ -228,7 +238,7 @@ public class FileEncryptor {
      * @throws IOException
      */
     public static void decrypt(byte[] key, String inputPath, String outputPath) throws IOException, 
-    NoSuchAlgorithmException, NoSuchPaddingException {
+    NoSuchAlgorithmException, NoSuchPaddingException, InvalidKeyException, InvalidAlgorithmParameterException{
         
         File outputFile = new File(outputPath);
         // Create a new Output file if it doesn't exist
@@ -258,20 +268,22 @@ public class FileEncryptor {
      * @return boolean True if Decryption is successful False otherwise
      * @throws NoSuchPaddingException
      * @throws NoSuchAlgorithmException
+     * @throws InvalidKeyException
      * @throws InvalidAlgorithmParameterException
      */
     private static boolean writeDecryptedFile(Path inputPath, Path outputPath, byte[] key) throws NoSuchAlgorithmException, 
-    NoSuchPaddingException {
+    NoSuchPaddingException, InvalidKeyException, InvalidAlgorithmParameterException {
         try (InputStream encryptedData = Files.newInputStream(inputPath);){
         
             // Read metadata from the input file
-            byte[] initVector = new byte[encryptedData.read()];
+            byte[] initVector = new byte[16];
+            byte[] givenMac = new byte[32];
+            
             encryptedData.read(initVector);
-            byte[] givenMac = new byte[encryptedData.read()];
             encryptedData.read(givenMac);
             
             // Create key specifications
-            IvParameterSpec iv = new IvParameterSpec((initVector));
+            IvParameterSpec iv = new IvParameterSpec(initVector);
             SecretKeySpec skeySpec = new SecretKeySpec(key, ALGORITHM);
             SecretKeySpec macKey = new SecretKeySpec(key, HASH_AlGORITHM);
             
@@ -292,25 +304,19 @@ public class FileEncryptor {
             } 
             
             // Check authentication and file integerity
-            byte[] computedMac = computeMac(hmac, initVector, outputPath);
+            hmac.update(initVector);
+            byte[] computedMac = computeMac(hmac, outputPath);
             if (!Arrays.equals(givenMac, computedMac)) {
                 throw new SecurityException("Authentication failed, file may have been tampered with");
-            } else {
-                LOG.info("Authentication passed, file integrity maintained");
-            }
+            } 
+                
+            LOG.info("Authentication passed, file integrity maintained");
+            
 
         } catch (IOException ex) {
             Logger.getLogger(FileEncryptor.class.getName()).log(Level.SEVERE, "IOException caught");
             return false;
-        } catch (InvalidKeyException e) {
-            Logger.getLogger(FileEncryptor.class.getName()).log(Level.SEVERE, "InvalidKeyException caught," 
-            + " please specify the correct Key");
-            return false;
-        } catch (InvalidAlgorithmParameterException e) {
-            Logger.getLogger(FileEncryptor.class.getName()).log(Level.SEVERE, "InvalidAlgorithmParameterException caught," 
-            + " file may have been modified, or invalid key was specified.");
-            return false;
-        }
+        } 
         return true;
     }
 }
