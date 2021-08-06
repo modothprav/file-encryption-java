@@ -10,6 +10,7 @@ import java.security.InvalidAlgorithmParameterException;
 import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
+import java.security.spec.InvalidKeySpecException;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.logging.Level;
@@ -19,7 +20,10 @@ import javax.crypto.CipherInputStream;
 import javax.crypto.CipherOutputStream;
 import javax.crypto.Mac;
 import javax.crypto.NoSuchPaddingException;
+import javax.crypto.SecretKey;
+import javax.crypto.SecretKeyFactory;
 import javax.crypto.spec.IvParameterSpec;
+import javax.crypto.spec.PBEKeySpec;
 import javax.crypto.spec.SecretKeySpec;
 
 
@@ -34,29 +38,20 @@ public class FileEncryptor {
     private static final String ALGORITHM = "AES";
     private static final String HASH_AlGORITHM = "HmacSHA256";
     private static final String CIPHER = "AES/CBC/PKCS5PADDING";
+    private static final int ITERATION_COUNT = 1000 * 128;
 
     public static void main(String[] args) throws Exception {
         // Error Message
-        final String validCmdMsg = "Valid Encryption command: java FileEncryptor enc [Key] [inputFile] [outputFile]\n"
-        + "Valid Decryption command: java FileEncryptor dec [Key] [inputFile] [outputFile]\n"
-        + "Valid Key generation command: java FileEncryptor key\n"
-        + "NOTE: The key specified must be Base64 Encoded";
+        final String validCmdMsg = "Valid Encryption command: java FileEncryptor enc [Password] [inputFile] [outputFile]\n"
+        + "Valid Decryption command: java FileEncryptor dec [Password] [inputFile] [outputFile]\n";
 
-        if (args.length < 1) { throw new IllegalArgumentException("Not Enough Argunments specified\n" + validCmdMsg); }
+        if (args.length < 4) { throw new IllegalArgumentException("Not Enough Argunments specified\n" + validCmdMsg); }
 
         // Convert String arguments to char arrays
         char[][] charArgs = Util.getCharArguments(args);
 
         // Clear String argunments
         Arrays.fill(args, null);
-
-        // Generate and display key, for testing and marking purposes
-        if (Arrays.equals(charArgs[0], "key".toCharArray())) {
-            generateKey();
-            return;
-        }
-
-        if (charArgs.length < 4) { throw new IllegalArgumentException("Not Enough Argunments Provided\n" + validCmdMsg ); } 
 
         // Options Available
         char[] enc = "enc".toCharArray();
@@ -66,29 +61,29 @@ public class FileEncryptor {
             throw new IllegalArgumentException("Neither enc (encrypt) or dec (decrypt) option specified\n" + validCmdMsg);
         }
 
-        byte[] key = new byte[16];
-        try {
-            key = Base64.getDecoder().decode(Util.convertCharToByte(charArgs[1]));
-        } catch (IllegalArgumentException e) {
-            throw new IllegalArgumentException("Key provided must be Base64 encoded\n" + validCmdMsg);
-        }
-
         if (Arrays.equals(charArgs[0], enc)) { // Encrypt
-            encrypt(key, new String(charArgs[2]), new String(charArgs[3]));
+            encrypt(charArgs[1], new String(charArgs[2]), new String(charArgs[3]));
 
         } else if (Arrays.equals(charArgs[0], dec)) { // Decrypt
-            decrypt(key, new String(charArgs[2]), new String(charArgs[3]));
+            decrypt(charArgs[1], new String(charArgs[2]), new String(charArgs[3]));
         
         }
 
         // Tear Down, clear arrays
-        Arrays.fill(key, (byte) 0);
         Arrays.fill(enc, '\0'); Arrays.fill(dec, '\0');
 
         for (int i = 0; i < charArgs.length; i++) {
             Arrays.fill(charArgs[i], '\0');
         }
-        charArgs = null; key = null; dec = null; enc = null; 
+        charArgs = null; dec = null; enc = null; 
+    }
+
+    private static byte[] generateKey(char[] password, byte[] salt, int keyLength) throws NoSuchAlgorithmException, 
+    InvalidKeySpecException {
+        PBEKeySpec passwordKeySpec = new PBEKeySpec(password, salt, ITERATION_COUNT, keyLength);
+        SecretKeyFactory keyFactory = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256");
+        SecretKey secretKey = keyFactory.generateSecret(passwordKeySpec);
+        return secretKey.getEncoded();
     }
 
     /**
@@ -106,13 +101,19 @@ public class FileEncryptor {
      * @throws InvalidKeyException
      * @throws InvalidAlgorithmParameterException
      * @throws IOException
+     * @throws InvalidKeySpecException
      */
-    public static void encrypt(byte[] key, String inputPath, String outputPath) throws NoSuchAlgorithmException, 
-    NoSuchPaddingException, InvalidKeyException, InvalidAlgorithmParameterException, IOException {
-        //Generate Initilisation Vector
-        SecureRandom sr = new SecureRandom();
+    public static void encrypt(char[] password, String inputPath, String outputPath) throws NoSuchAlgorithmException, 
+    NoSuchPaddingException, InvalidKeyException, InvalidAlgorithmParameterException, IOException, InvalidKeySpecException {
+        //Generate vector and salts
         final byte[] initVector = new byte[16];
-        sr.nextBytes(initVector); // 16 bytes IV
+        final byte[] salt = new byte[16];
+
+        SecureRandom sr = new SecureRandom();
+        sr.nextBytes(initVector); 
+        sr.nextBytes(salt);
+
+        final byte[] key = generateKey(password, salt, 128);
 
         // Initialize Vector and Keys
         IvParameterSpec iv = new IvParameterSpec(initVector);
@@ -122,6 +123,7 @@ public class FileEncryptor {
         // Initialize cipher and Mac
         Cipher cipher = Cipher.getInstance(CIPHER);
         cipher.init(Cipher.ENCRYPT_MODE, skeySpec, iv);
+        
         Mac hmac = Mac.getInstance(HASH_AlGORITHM);
         hmac.init(macKey);
     
@@ -136,14 +138,15 @@ public class FileEncryptor {
         hmac.update(initVector);
         final byte[] mac = computeMac(hmac, plaintextFile);
 
-        // Display the Base64 encoded versions of Vector and computed mac
+        // Display the Base64 encoded versions of Key, Vector and computed mac
         System.out.print("\n<---------------------------------------->\n");
+        System.out.println("Secret Key is: " + Base64.getEncoder().encodeToString(key));
         System.out.println("IV is: " + Base64.getEncoder().encodeToString(initVector));
         System.out.println("Computed Mac: " + Base64.getEncoder().encodeToString(mac));
         System.out.print("<---------------------------------------->\n\n");
 
         // Write plaintext into ciphertext
-        if (writeEncryptedFile(plaintextFile, encryptedFile, cipher, mac)) {
+        if (writeEncryptedFile(plaintextFile, encryptedFile, cipher, salt, mac)) {
             LOG.info("Encryption finished, saved at " + encryptedFile);
         } else {
             LOG.log(Level.WARNING, "Encryption Failed");
@@ -164,12 +167,13 @@ public class FileEncryptor {
      * specifications in ENCRYPT mode
      * @return boolean True if encryption successful False otherwise
      */
-    private static boolean writeEncryptedFile(Path inputPath, Path outputPath, Cipher cipher, byte[] mac) {
+    private static boolean writeEncryptedFile(Path inputPath, Path outputPath, Cipher cipher, byte[] salt, byte[] mac) {
         try (InputStream fin = Files.newInputStream(inputPath);) {
             
             try (FileOutputStream fout = new FileOutputStream(outputPath.toFile());) {
                 // Write Metadata
                 fout.write(cipher.getIV());
+                fout.write(salt);
                 fout.write(mac);
 
                 try (CipherOutputStream cipherOut = new CipherOutputStream(fout, cipher);) {
@@ -212,19 +216,6 @@ public class FileEncryptor {
     }
 
     /**
-     * This function is invoked when the 'key' option is specified
-     * in the command line. Generates a random 128 bit key which 
-     * gets printed out in Base64 encoded form to the command line. 
-     * For marking purposes and ease of testing for Part 2.
-     */
-    private static void generateKey() {
-        SecureRandom sr = new SecureRandom();
-        byte[] key = new byte[16];
-        sr.nextBytes(key);
-        System.out.println("\nSecret Key is: " + Base64.getEncoder().encodeToString(key) + "\n");
-    }
-
-    /**
      * Decrypts a given cipertext file into its original plaintext form. 
      * A successful decryption occurs when provided with the right key
      * to create the Cipher specifications required for decryption. 
@@ -238,9 +229,11 @@ public class FileEncryptor {
      * @throws InvalidKeyException
      * @throws InvalidAlgorithmParameterException
      * @throws IOException
+     * @throws InvalidKeySpecException
      */
-    public static void decrypt(byte[] key, String inputPath, String outputPath) throws IOException, 
-    NoSuchAlgorithmException, NoSuchPaddingException, InvalidKeyException, InvalidAlgorithmParameterException{
+    public static void decrypt(char[] password, String inputPath, String outputPath) throws IOException, 
+    NoSuchAlgorithmException, NoSuchPaddingException, InvalidKeyException, InvalidAlgorithmParameterException, 
+    InvalidKeySpecException{
         
         File outputFile = new File(outputPath);
         // Create a new Output file if it doesn't exist
@@ -249,7 +242,7 @@ public class FileEncryptor {
         final Path encryptedFile = Paths.get(inputPath);
         final Path decryptedFile = Paths.get(outputPath);
         
-        if (writeDecryptedFile(encryptedFile, decryptedFile, key)) {
+        if (writeDecryptedFile(encryptedFile, decryptedFile, password)) {
             LOG.info("Decryption complete, open " + decryptedFile);
         } else {
             LOG.log(Level.SEVERE, "Decryption failed: Ensure the correct Key and Files paths are specified");
@@ -267,23 +260,28 @@ public class FileEncryptor {
      * 
      * @param inputPath Path The input file path (encrypted file)
      * @param outputPath Path The output file path (decrypted file)
-     * @param key byte[] The secret key which will be used for decryption
+     * @param password char[] The password entered by the user 
      * @return boolean True if Decryption is successful False otherwise
      * @throws NoSuchPaddingException
      * @throws NoSuchAlgorithmException
      * @throws InvalidKeyException
      * @throws InvalidAlgorithmParameterException
+     * @throws InvalidKeySpecException
      */
-    private static boolean writeDecryptedFile(Path inputPath, Path outputPath, byte[] key) throws NoSuchAlgorithmException, 
-    NoSuchPaddingException, InvalidKeyException, InvalidAlgorithmParameterException {
+    private static boolean writeDecryptedFile(Path inputPath, Path outputPath, char[] password) throws NoSuchAlgorithmException, 
+    NoSuchPaddingException, InvalidKeyException, InvalidAlgorithmParameterException, InvalidKeySpecException {
         try (InputStream encryptedData = Files.newInputStream(inputPath);){
         
             // Read metadata from the input file
             final byte[] initVector = new byte[16];
+            final byte[] salt = new byte[16];
             final byte[] givenMac = new byte[32];
             
             encryptedData.read(initVector);
+            encryptedData.read(salt);
             encryptedData.read(givenMac);
+
+            final byte[] key = generateKey(password, salt, 128);
             
             // Create key specifications
             IvParameterSpec iv = new IvParameterSpec(initVector);

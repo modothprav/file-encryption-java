@@ -34,7 +34,7 @@ public class Util {
     }
 
     /**
-     * Converts an arry of Strings into a 2-Dimensional array of 
+     * Converts an array of Strings into a 2-Dimensional array of 
      * characters, each row representing the String as a char array
      * and each column in a row representing the individual char value
      * 
