@@ -78,6 +78,19 @@ public class FileEncryptor {
         charArgs = null; dec = null; enc = null; 
     }
 
+    /**
+     * Generates a Secret key with a specified password. The password is added with 
+     * a salt and iterated multiple times before being hased to increase entropy.
+     * The salt and key lenghts need to be specified to then return a secret key 
+     * encoded in a byte array. 
+     * 
+     * @param password char[] The password specified by the user
+     * @param salt byte[] A randomly gnerated set of bytes 
+     * @param keyLength int The lenght of the final key, in bits e.g. 128, 256 etc.
+     * @return byte[] An encoded byte array of the secret key
+     * @throws NoSuchAlgorithmException
+     * @throws InvalidKeySpecException
+     */
     private static byte[] generateKey(char[] password, byte[] salt, int keyLength) throws NoSuchAlgorithmException, 
     InvalidKeySpecException {
         PBEKeySpec passwordKeySpec = new PBEKeySpec(password, salt, ITERATION_COUNT, keyLength);
@@ -93,9 +106,9 @@ public class FileEncryptor {
      * is also computed with the intialisaton vector and plaintext values, hence these 
      * values can be checked for tampering during decryption.
      * 
-     * @param key byte[] The secrect key which will be used to encrypt the file
-     * @param inputPath - A String specifying the Input path of the plaintext file
-     * @param outputPath - A String specifying the Ouput path of the ciphertext file
+     * @param password char[] The password specified by the user
+     * @param inputPath String specifying the Input path of the plaintext file
+     * @param outputPath String specifying the Ouput path of the ciphertext file
      * @throws NoSuchAlgorithmException
      * @throws NoSuchPaddingException
      * @throws InvalidKeyException
@@ -106,9 +119,7 @@ public class FileEncryptor {
     public static void encrypt(char[] password, String inputPath, String outputPath) throws NoSuchAlgorithmException, 
     NoSuchPaddingException, InvalidKeyException, InvalidAlgorithmParameterException, IOException, InvalidKeySpecException {
         //Generate vector and salts
-        final byte[] initVector = new byte[16];
-        final byte[] salt = new byte[16];
-        final byte[] macSalt = new byte[16];
+        final byte[] initVector = new byte[16], salt = new byte[16], macSalt = new byte[16];
 
         SecureRandom sr = new SecureRandom();
         sr.nextBytes(initVector); 
@@ -147,7 +158,10 @@ public class FileEncryptor {
         // Display the Base64 encoded versions of Key, Vector and computed mac
         System.out.print("\n<---------------------------------------->\n");
         System.out.println("Secret Key is: " + Base64.getEncoder().encodeToString(key));
+        System.out.println("Key salt is: " + Base64.getEncoder().encodeToString(salt));
         System.out.println("IV is: " + Base64.getEncoder().encodeToString(initVector));
+        System.out.println("Mac Key is: " + Base64.getEncoder().encodeToString(macKey));
+        System.out.println("Mac salt is: " + Base64.getEncoder().encodeToString(macSalt));
         System.out.println("Computed Mac: " + Base64.getEncoder().encodeToString(mac));
         System.out.print("<---------------------------------------->\n\n");
 
@@ -171,6 +185,8 @@ public class FileEncryptor {
      * @param outputPath Path The file path of the output file (ciphertext)
      * @param cipher Cipher The cipher instance initialized with the appropriate 
      * specifications in ENCRYPT mode
+     * @param salt byte[] The salt used to create key from password
+     * @param macSalt byte[] The salt used to create the macKey from password
      * @return boolean True if encryption successful False otherwise
      */
     private static boolean writeEncryptedFile(Path inputPath, Path outputPath, Cipher cipher, byte[] salt, byte[] macSalt, byte[] mac) {
@@ -228,9 +244,9 @@ public class FileEncryptor {
      * to create the Cipher specifications required for decryption. 
      * Will overwrite the resultant output file if it already exists.
      * 
-     * @param key byte[] - The Key used to originally encrypt the input file 
-     * @param inputPath String - The input file path (encrypted document)
-     * @param outputPath String - The file path of the resultant decrypted text
+     * @param password char[] The password specified by the user
+     * @param inputPath String The input file path (encrypted document)
+     * @param outputPath String The file path of the resultant decrypted text
      * @throws NoSuchAlgorithmException
      * @throws NoSuchPaddingException
      * @throws InvalidKeyException
@@ -280,10 +296,7 @@ public class FileEncryptor {
         try (InputStream encryptedData = Files.newInputStream(inputPath);){
         
             // Read metadata from the input file
-            final byte[] initVector = new byte[16];
-            final byte[] salt = new byte[16];
-            final byte[] macSalt = new byte[16];
-            final byte[] givenMac = new byte[32];
+            final byte[] initVector = new byte[16], salt = new byte[16], macSalt = new byte[16], givenMac = new byte[32];
             
             encryptedData.read(initVector);
             encryptedData.read(salt);
