@@ -41,7 +41,7 @@ public class Util {
      * @param args String[] An array of strings
      * @return char[][] A 2-Dimensional character array
      */
-    public static final char[][] getCharArgunments(String[] args) {
+    public static final char[][] getCharArguments(String[] args) {
         char[][] charArgs = new char[args.length][];
         for (int i = 0; i < args.length; i++) {
             charArgs[i] = args[i].toCharArray();

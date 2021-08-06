@@ -45,7 +45,7 @@ public class FileEncryptor {
         if (args.length < 1) { throw new IllegalArgumentException("Not Enough Argunments specified\n" + validCmdMsg); }
 
         // Convert String arguments to char arrays
-        char[][] charArgs = Util.getCharArgunments(args);
+        char[][] charArgs = Util.getCharArguments(args);
 
         // Clear String argunments
         Arrays.fill(args, null);
@@ -56,9 +56,7 @@ public class FileEncryptor {
             return;
         }
 
-        if (charArgs.length < 4) { 
-            throw new IllegalArgumentException("Not Enough Argunments Provided\n" + validCmdMsg ); 
-        } 
+        if (charArgs.length < 4) { throw new IllegalArgumentException("Not Enough Argunments Provided\n" + validCmdMsg ); } 
 
         // Options Available
         char[] enc = "enc".toCharArray();
@@ -68,7 +66,7 @@ public class FileEncryptor {
             throw new IllegalArgumentException("Neither enc (encrypt) or dec (decrypt) option specified\n" + validCmdMsg);
         }
 
-        byte[] key;
+        byte[] key = new byte[16];
         try {
             key = Base64.getDecoder().decode(Util.convertCharToByte(charArgs[1]));
         } catch (IllegalArgumentException e) {
@@ -113,7 +111,7 @@ public class FileEncryptor {
     NoSuchPaddingException, InvalidKeyException, InvalidAlgorithmParameterException, IOException {
         //Generate Initilisation Vector
         SecureRandom sr = new SecureRandom();
-        byte[] initVector = new byte[16];
+        final byte[] initVector = new byte[16];
         sr.nextBytes(initVector); // 16 bytes IV
 
         // Initialize Vector and Keys
@@ -136,7 +134,7 @@ public class FileEncryptor {
 
         // Compute Mac for authentication
         hmac.update(initVector);
-        byte[] mac = computeMac(hmac, plaintextFile);
+        final byte[] mac = computeMac(hmac, plaintextFile);
 
         // Display the Base64 encoded versions of Vector and computed mac
         System.out.print("\n<---------------------------------------->\n");
@@ -206,7 +204,8 @@ public class FileEncryptor {
                 hmac.update(bytes, 0, length);
             }
         } catch (IOException e) {
-
+            LOG.log(Level.SEVERE, "IOException caught - Please check filepath specified");
+            System.exit(0);
         }
 
         return hmac.doFinal();
@@ -275,12 +274,13 @@ public class FileEncryptor {
      * @throws InvalidKeyException
      * @throws InvalidAlgorithmParameterException
      */
-    private static boolean writeDecryptedFile(Path inputPath, Path outputPath, byte[] key) throws NoSuchAlgorithmException, NoSuchPaddingException, InvalidKeyException, InvalidAlgorithmParameterException {
+    private static boolean writeDecryptedFile(Path inputPath, Path outputPath, byte[] key) throws NoSuchAlgorithmException, 
+    NoSuchPaddingException, InvalidKeyException, InvalidAlgorithmParameterException {
         try (InputStream encryptedData = Files.newInputStream(inputPath);){
         
             // Read metadata from the input file
-            byte[] initVector = new byte[16];
-            byte[] givenMac = new byte[32];
+            final byte[] initVector = new byte[16];
+            final byte[] givenMac = new byte[32];
             
             encryptedData.read(initVector);
             encryptedData.read(givenMac);
@@ -290,7 +290,7 @@ public class FileEncryptor {
             SecretKeySpec skeySpec = new SecretKeySpec(key, ALGORITHM);
             SecretKeySpec macKey = new SecretKeySpec(key, HASH_AlGORITHM);
             
-            // Initialise cipher and HMac
+            // Initialise cipher 
             Cipher cipher = Cipher.getInstance(CIPHER);
             cipher.init(Cipher.DECRYPT_MODE, skeySpec, iv);
 
