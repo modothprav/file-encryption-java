@@ -45,7 +45,7 @@ public class FileEncryptor {
         if (args.length < 1) { throw new IllegalArgumentException("Not Enough Argunments specified\n" + validCmdMsg); }
 
         // Convert String arguments to char arrays
-        char[][] charArgs = Util.getCharArgunments(args);
+        char[][] charArgs = Util.getCharArguments(args);
 
         // Clear String argunments
         Arrays.fill(args, null);
