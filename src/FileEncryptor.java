@@ -111,7 +111,7 @@ public class FileEncryptor {
     NoSuchPaddingException, InvalidKeyException, InvalidAlgorithmParameterException, IOException {
         //Generate Initilisation Vector
         SecureRandom sr = new SecureRandom();
-        byte[] initVector = new byte[16];
+        final byte[] initVector = new byte[16];
         sr.nextBytes(initVector); // 16 bytes IV
 
         // Initialize Vector and Keys
@@ -134,7 +134,7 @@ public class FileEncryptor {
 
         // Compute Mac for authentication
         hmac.update(initVector);
-        byte[] mac = computeMac(hmac, plaintextFile);
+        final byte[] mac = computeMac(hmac, plaintextFile);
 
         // Display the Base64 encoded versions of Vector and computed mac
         System.out.print("\n<---------------------------------------->\n");
@@ -279,8 +279,8 @@ public class FileEncryptor {
         try (InputStream encryptedData = Files.newInputStream(inputPath);){
         
             // Read metadata from the input file
-            byte[] initVector = new byte[16];
-            byte[] givenMac = new byte[32];
+            final byte[] initVector = new byte[16];
+            final byte[] givenMac = new byte[32];
             
             encryptedData.read(initVector);
             encryptedData.read(givenMac);
