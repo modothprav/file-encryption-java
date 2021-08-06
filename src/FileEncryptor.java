@@ -108,24 +108,28 @@ public class FileEncryptor {
         //Generate vector and salts
         final byte[] initVector = new byte[16];
         final byte[] salt = new byte[16];
+        final byte[] macSalt = new byte[16];
 
         SecureRandom sr = new SecureRandom();
         sr.nextBytes(initVector); 
         sr.nextBytes(salt);
+        sr.nextBytes(macSalt);
 
+        // Get Keys from password
         final byte[] key = generateKey(password, salt, 128);
+        final byte[] macKey = generateKey(password, macSalt, 256);
 
         // Initialize Vector and Keys
         IvParameterSpec iv = new IvParameterSpec(initVector);
         SecretKeySpec skeySpec = new SecretKeySpec(key, ALGORITHM);
-        SecretKeySpec macKey = new SecretKeySpec(key, HASH_AlGORITHM);
+        SecretKeySpec macKeySpec = new SecretKeySpec(macKey, HASH_AlGORITHM);
 
         // Initialize cipher and Mac
         Cipher cipher = Cipher.getInstance(CIPHER);
         cipher.init(Cipher.ENCRYPT_MODE, skeySpec, iv);
         
         Mac hmac = Mac.getInstance(HASH_AlGORITHM);
-        hmac.init(macKey);
+        hmac.init(macKeySpec);
     
         File outputFile = new File(outputPath);    
         // Create the output file if it doesn't exist
@@ -136,6 +140,8 @@ public class FileEncryptor {
 
         // Compute Mac for authentication
         hmac.update(initVector);
+        hmac.update(salt);
+        hmac.update(macSalt);
         final byte[] mac = computeMac(hmac, plaintextFile);
 
         // Display the Base64 encoded versions of Key, Vector and computed mac
@@ -146,7 +152,7 @@ public class FileEncryptor {
         System.out.print("<---------------------------------------->\n\n");
 
         // Write plaintext into ciphertext
-        if (writeEncryptedFile(plaintextFile, encryptedFile, cipher, salt, mac)) {
+        if (writeEncryptedFile(plaintextFile, encryptedFile, cipher, salt, macSalt, mac)) {
             LOG.info("Encryption finished, saved at " + encryptedFile);
         } else {
             LOG.log(Level.WARNING, "Encryption Failed");
@@ -167,13 +173,14 @@ public class FileEncryptor {
      * specifications in ENCRYPT mode
      * @return boolean True if encryption successful False otherwise
      */
-    private static boolean writeEncryptedFile(Path inputPath, Path outputPath, Cipher cipher, byte[] salt, byte[] mac) {
+    private static boolean writeEncryptedFile(Path inputPath, Path outputPath, Cipher cipher, byte[] salt, byte[] macSalt, byte[] mac) {
         try (InputStream fin = Files.newInputStream(inputPath);) {
             
             try (FileOutputStream fout = new FileOutputStream(outputPath.toFile());) {
                 // Write Metadata
                 fout.write(cipher.getIV());
                 fout.write(salt);
+                fout.write(macSalt);
                 fout.write(mac);
 
                 try (CipherOutputStream cipherOut = new CipherOutputStream(fout, cipher);) {
@@ -275,18 +282,21 @@ public class FileEncryptor {
             // Read metadata from the input file
             final byte[] initVector = new byte[16];
             final byte[] salt = new byte[16];
+            final byte[] macSalt = new byte[16];
             final byte[] givenMac = new byte[32];
             
             encryptedData.read(initVector);
             encryptedData.read(salt);
+            encryptedData.read(macSalt);
             encryptedData.read(givenMac);
 
             final byte[] key = generateKey(password, salt, 128);
+            final byte[] macKey = generateKey(password, macSalt, 256);
             
             // Create key specifications
             IvParameterSpec iv = new IvParameterSpec(initVector);
             SecretKeySpec skeySpec = new SecretKeySpec(key, ALGORITHM);
-            SecretKeySpec macKey = new SecretKeySpec(key, HASH_AlGORITHM);
+            SecretKeySpec macKeySpec = new SecretKeySpec(macKey, HASH_AlGORITHM);
             
             // Initialise cipher 
             Cipher cipher = Cipher.getInstance(CIPHER);
@@ -304,10 +314,12 @@ public class FileEncryptor {
             
             // Check authentication and file integerity
             Mac hmac = Mac.getInstance(HASH_AlGORITHM);
-            hmac.init(macKey);
+            hmac.init(macKeySpec);
 
             hmac.update(initVector);
-            byte[] computedMac = computeMac(hmac, outputPath);
+            hmac.update(salt);
+            hmac.update(macSalt);
+            final byte[] computedMac = computeMac(hmac, outputPath);
             if (!Arrays.equals(givenMac, computedMac)) {
                 throw new SecurityException("Authentication failed, file may have been tampered with");
             } 
