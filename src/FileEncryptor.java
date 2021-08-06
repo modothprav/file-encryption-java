@@ -290,7 +290,7 @@ public class FileEncryptor {
             SecretKeySpec skeySpec = new SecretKeySpec(key, ALGORITHM);
             SecretKeySpec macKey = new SecretKeySpec(key, HASH_AlGORITHM);
             
-            // Initialise cipher and HMac
+            // Initialise cipher 
             Cipher cipher = Cipher.getInstance(CIPHER);
             cipher.init(Cipher.DECRYPT_MODE, skeySpec, iv);
 
