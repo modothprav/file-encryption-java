@@ -56,9 +56,7 @@ public class FileEncryptor {
             return;
         }
 
-        if (charArgs.length < 4) { 
-            throw new IllegalArgumentException("Not Enough Argunments Provided\n" + validCmdMsg ); 
-        } 
+        if (charArgs.length < 4) { throw new IllegalArgumentException("Not Enough Argunments Provided\n" + validCmdMsg ); } 
 
         // Options Available
         char[] enc = "enc".toCharArray();
@@ -68,7 +66,7 @@ public class FileEncryptor {
             throw new IllegalArgumentException("Neither enc (encrypt) or dec (decrypt) option specified\n" + validCmdMsg);
         }
 
-        byte[] key;
+        byte[] key = new byte[16];
         try {
             key = Base64.getDecoder().decode(Util.convertCharToByte(charArgs[1]));
         } catch (IllegalArgumentException e) {
@@ -206,7 +204,8 @@ public class FileEncryptor {
                 hmac.update(bytes, 0, length);
             }
         } catch (IOException e) {
-
+            LOG.log(Level.SEVERE, "IOException caught - Please check filepath specified");
+            System.exit(0);
         }
 
         return hmac.doFinal();
@@ -275,7 +274,8 @@ public class FileEncryptor {
      * @throws InvalidKeyException
      * @throws InvalidAlgorithmParameterException
      */
-    private static boolean writeDecryptedFile(Path inputPath, Path outputPath, byte[] key) throws NoSuchAlgorithmException, NoSuchPaddingException, InvalidKeyException, InvalidAlgorithmParameterException {
+    private static boolean writeDecryptedFile(Path inputPath, Path outputPath, byte[] key) throws NoSuchAlgorithmException, 
+    NoSuchPaddingException, InvalidKeyException, InvalidAlgorithmParameterException {
         try (InputStream encryptedData = Files.newInputStream(inputPath);){
         
             // Read metadata from the input file
