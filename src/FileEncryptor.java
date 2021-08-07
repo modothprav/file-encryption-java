@@ -109,6 +109,9 @@ public class FileEncryptor {
         final byte[] key = generateKey(password, salt, 128);
         final byte[] macKey = generateKey(password, macSalt, 256);
 
+        // Password no longer needed
+        Arrays.fill(password, '\0'); password = null;
+
         SecretKeySpec macKeySpec = new SecretKeySpec(macKey, HASH_AlGORITHM);
         
         Mac hmac = Mac.getInstance(HASH_AlGORITHM);
@@ -244,6 +247,9 @@ public class FileEncryptor {
 
             final byte[] key = generateKey(password, salt, 128);
             final byte[] macKey = generateKey(password, macSalt, 256);
+
+            // Password no longer needed
+            Arrays.fill(password, '\0'); password = null;
             
             // Create key specifications
             SecretKeySpec macKeySpec = new SecretKeySpec(macKey, HASH_AlGORITHM);
