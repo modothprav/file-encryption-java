@@ -27,6 +27,8 @@ import javax.crypto.spec.PBEKeySpec;
 import javax.crypto.spec.SecretKeySpec;
 
 
+
+
 /**
  *
  * @author Erik Costlow
@@ -38,7 +40,7 @@ public class FileEncryptor {
     private static final String ALGORITHM = "AES";
     private static final String HASH_AlGORITHM = "HmacSHA256";
     private static final String CIPHER = "AES/CBC/PKCS5PADDING";
-    private static final int ITERATION_COUNT = 1000 * 128;
+    private static final int ITERATION_COUNT = 100000;
 
     public static void main(String[] args) throws Exception {
         // Error Message
@@ -79,27 +81,6 @@ public class FileEncryptor {
     }
 
     /**
-     * Generates a Secret key with a specified password. The password is added with 
-     * a salt and iterated multiple times before being hased to increase entropy.
-     * The salt and key lenghts need to be specified to then return a secret key 
-     * encoded in a byte array. 
-     * 
-     * @param password char[] The password specified by the user
-     * @param salt byte[] A randomly gnerated set of bytes 
-     * @param keyLength int The lenght of the final key, in bits e.g. 128, 256 etc.
-     * @return byte[] An encoded byte array of the secret key
-     * @throws NoSuchAlgorithmException
-     * @throws InvalidKeySpecException
-     */
-    private static byte[] generateKey(char[] password, byte[] salt, int keyLength) throws NoSuchAlgorithmException, 
-    InvalidKeySpecException {
-        PBEKeySpec passwordKeySpec = new PBEKeySpec(password, salt, ITERATION_COUNT, keyLength);
-        SecretKeyFactory keyFactory = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256");
-        SecretKey secretKey = keyFactory.generateSecret(passwordKeySpec);
-        return secretKey.getEncoded();
-    }
-
-    /**
      * Encrypts a plain text input file by outputing an encrypted version. It does this 
      * generating a 128 bit secret key and initialisation vector which are used as the 
      * specifications during the file encryption process. A message aithentication code 
@@ -122,22 +103,13 @@ public class FileEncryptor {
         final byte[] initVector = new byte[16], salt = new byte[16], macSalt = new byte[16];
 
         SecureRandom sr = new SecureRandom();
-        sr.nextBytes(initVector); 
-        sr.nextBytes(salt);
-        sr.nextBytes(macSalt);
+        sr.nextBytes(initVector); sr.nextBytes(salt); sr.nextBytes(macSalt);
 
         // Get Keys from password
         final byte[] key = generateKey(password, salt, 128);
         final byte[] macKey = generateKey(password, macSalt, 256);
 
-        // Initialize Vector and Keys
-        IvParameterSpec iv = new IvParameterSpec(initVector);
-        SecretKeySpec skeySpec = new SecretKeySpec(key, ALGORITHM);
         SecretKeySpec macKeySpec = new SecretKeySpec(macKey, HASH_AlGORITHM);
-
-        // Initialize cipher and Mac
-        Cipher cipher = Cipher.getInstance(CIPHER);
-        cipher.init(Cipher.ENCRYPT_MODE, skeySpec, iv);
         
         Mac hmac = Mac.getInstance(HASH_AlGORITHM);
         hmac.init(macKeySpec);
@@ -150,20 +122,14 @@ public class FileEncryptor {
         final Path encryptedFile = Paths.get(outputPath);
 
         // Compute Mac for authentication
-        hmac.update(initVector);
-        hmac.update(salt);
-        hmac.update(macSalt);
+        hmac.update(initVector); hmac.update(salt); hmac.update(macSalt);
         final byte[] mac = computeMac(hmac, plaintextFile);
 
         // Display the Base64 encoded versions of Key, Vector and computed mac
-        System.out.print("\n<---------------------------------------->\n");
-        System.out.println("Secret Key is: " + Base64.getEncoder().encodeToString(key));
-        System.out.println("Key salt is: " + Base64.getEncoder().encodeToString(salt));
-        System.out.println("IV is: " + Base64.getEncoder().encodeToString(initVector));
-        System.out.println("Mac Key is: " + Base64.getEncoder().encodeToString(macKey));
-        System.out.println("Mac salt is: " + Base64.getEncoder().encodeToString(macSalt));
-        System.out.println("Computed Mac: " + Base64.getEncoder().encodeToString(mac));
-        System.out.print("<---------------------------------------->\n\n");
+        displayInformation(getPair("Secret Key", key), getPair("Init Vector", initVector), getPair("Salt", salt), 
+        getPair("Mac Key", macKey), getPair("Mac salt", macSalt), getPair("Computed Mac", mac));
+
+        Cipher cipher = createCipher(key, initVector, 1);
 
         // Write plaintext into ciphertext
         if (writeEncryptedFile(plaintextFile, encryptedFile, cipher, salt, macSalt, mac)) {
@@ -177,7 +143,7 @@ public class FileEncryptor {
      * Writes an encrypted version of the input file, into a new output file.
      * Uses a FileInputStream to read the plaintext file and wraps the OutputStream
      * with a CipherOutStream to write an encrypted version. Prior to writing the 
-     * encrypted data, IV and the computed mac is saved as metadata in the encrypted 
+     * encrypted data, IV, salts and the computed mac is saved as metadata in the encrypted 
      * file with the use of a FileOutputStream. Returns True if the encryption writing 
      * was successfull, False otherwise.
      *  
@@ -215,32 +181,8 @@ public class FileEncryptor {
     }
 
     /**
-     * Computes a Message authencitaion code for a given inputfile
-     * Takes in an initialised hmac which gets updated with the file's
-     * contents line by line. Once completed the doFinal method will 
-     * return a byte array with the computed Mac.
-     * 
-     * @param hmac Mac The initialised Mac object
-     * @param filePath Path The file path
-     * @return byte[] The file's computed Mac
-     */
-    private static byte[] computeMac(Mac hmac, Path filePath) {
-        try (InputStream fin = Files.newInputStream(filePath);) {
-            final byte[] bytes = new byte[1024];
-            for(int length = fin.read(bytes); length != -1; length = fin.read(bytes)){
-                hmac.update(bytes, 0, length);
-            }
-        } catch (IOException e) {
-            LOG.log(Level.SEVERE, "IOException caught - Please check filepath specified");
-            System.exit(0);
-        }
-
-        return hmac.doFinal();
-    }
-
-    /**
      * Decrypts a given cipertext file into its original plaintext form. 
-     * A successful decryption occurs when provided with the right key
+     * A successful decryption occurs when provided with the right password
      * to create the Cipher specifications required for decryption. 
      * Will overwrite the resultant output file if it already exists.
      * 
@@ -276,10 +218,10 @@ public class FileEncryptor {
      * Reads an encrypted file by wrapping an InputStream with a CipherInputStream
      * The encrypted files gets decrypted and written out to the output file. 
      * For a successful decryption the Cipher needs to be initialized in DECRYPT mode
-     * with the correct key and vector specifications. The IV is read from the encrypted
-     * file as it was saved unencrypted during the encryption process. Decryption will 
-     * also fail if the computed authentication code doesn't match with the given 
-     * authentication code, which it also reads from the encrpted file.
+     * with the correct key and vector specifications. The IV, salts and mac is read 
+     * from the encrypted file as it was saved unencrypted during the encryption process. 
+     * Decryption will also fail if the computed authentication code doesn't match with 
+     * the given authentication code.
      * 
      * @param inputPath Path The input file path (encrypted file)
      * @param outputPath Path The output file path (decrypted file)
@@ -298,22 +240,16 @@ public class FileEncryptor {
             // Read metadata from the input file
             final byte[] initVector = new byte[16], salt = new byte[16], macSalt = new byte[16], givenMac = new byte[32];
             
-            encryptedData.read(initVector);
-            encryptedData.read(salt);
-            encryptedData.read(macSalt);
-            encryptedData.read(givenMac);
+            encryptedData.read(initVector); encryptedData.read(salt); encryptedData.read(macSalt); encryptedData.read(givenMac);
 
             final byte[] key = generateKey(password, salt, 128);
             final byte[] macKey = generateKey(password, macSalt, 256);
             
             // Create key specifications
-            IvParameterSpec iv = new IvParameterSpec(initVector);
-            SecretKeySpec skeySpec = new SecretKeySpec(key, ALGORITHM);
             SecretKeySpec macKeySpec = new SecretKeySpec(macKey, HASH_AlGORITHM);
             
             // Initialise cipher 
-            Cipher cipher = Cipher.getInstance(CIPHER);
-            cipher.init(Cipher.DECRYPT_MODE, skeySpec, iv);
+            Cipher cipher = createCipher(key, initVector, 2);
 
             // Read cipertext data and write plaintext data
             try (CipherInputStream decryptStream = new CipherInputStream(encryptedData, cipher);) {
@@ -329,14 +265,18 @@ public class FileEncryptor {
             Mac hmac = Mac.getInstance(HASH_AlGORITHM);
             hmac.init(macKeySpec);
 
-            hmac.update(initVector);
-            hmac.update(salt);
-            hmac.update(macSalt);
+            hmac.update(initVector); hmac.update(salt); hmac.update(macSalt);
             final byte[] computedMac = computeMac(hmac, outputPath);
+            
             if (!Arrays.equals(givenMac, computedMac)) {
                 throw new SecurityException("Authentication failed, file may have been tampered with");
             } 
-                
+            
+            // Display the Base64 encoded versions of the values used for decryption - for marking and testing
+            displayInformation(getPair("Secret Key", key), getPair("Init Vector", initVector), getPair("Salt", salt), 
+            getPair("Mac Key", macKey), getPair("Mac salt", macSalt), getPair("Computed Mac", computedMac), 
+            getPair("Given Mac", givenMac));
+            
             LOG.info("Authentication passed, file integrity maintained");
             
         } catch (IOException ex) {
@@ -344,5 +284,106 @@ public class FileEncryptor {
             return false;
         } 
         return true;
+    }
+
+    /**
+     * Generates a Secret key with a specified password. The password is added with 
+     * a salt and iterated multiple times before being hased to increase entropy.
+     * The salt and key lenghts need to be specified to then return a secret key 
+     * encoded in a byte array. 
+     * 
+     * @param password char[] The password specified by the user
+     * @param salt byte[] A randomly gnerated set of bytes 
+     * @param keyLength int The lenght of the final key, in bits e.g. 128, 256 etc.
+     * @return byte[] An encoded byte array of the secret key
+     * @throws NoSuchAlgorithmException
+     * @throws InvalidKeySpecException
+     */
+    private static byte[] generateKey(char[] password, byte[] salt, int keyLength) throws NoSuchAlgorithmException, 
+    InvalidKeySpecException {
+        PBEKeySpec passwordKeySpec = new PBEKeySpec(password, salt, ITERATION_COUNT, keyLength);
+        SecretKeyFactory keyFactory = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256");
+        SecretKey secretKey = keyFactory.generateSecret(passwordKeySpec);
+        return secretKey.getEncoded();
+    }
+
+    /**
+     * Creates and initialises a Cipher with the specified key and initialisation vector.
+     * The cipher can be initialised in either Encrypt or Decrypt mode. The mode argument
+     * specifies which mode to initialise the cipher in. Only two values are accepted by 
+     * the 'mode' argunment, 1 for Encryptoin and 2 for Decryption
+     * 
+     * @param key byte[] The key to be used to generate the cipher
+     * @param initVector byte[] The IV to be used to create the cipher
+     * @param mode int The mode in which to initialise the cipher, Encrypt = 1; Decrypt = 2
+     * @return Cipher The initialised cipher in the specified mode
+     * @throws InvalidKeyException
+     * @throws InvalidAlgorithmParameterException
+     * @throws NoSuchAlgorithmException
+     * @throws NoSuchPaddingException
+     */
+    private static Cipher createCipher(byte[] key, byte[] initVector, int mode) throws InvalidKeyException, 
+    InvalidAlgorithmParameterException, NoSuchAlgorithmException, NoSuchPaddingException {
+        if (mode != 1 && mode != 2) { throw new IllegalArgumentException("Invalid Mode value, Encrypt = 1, Decrypt = 2"); }
+        
+        // Initialize Parameter specs
+        IvParameterSpec iv = new IvParameterSpec(initVector);
+        SecretKeySpec skeySpec = new SecretKeySpec(key, ALGORITHM);
+
+        // Initialize cipher 
+        Cipher cipher = Cipher.getInstance(CIPHER);
+        if (mode == Cipher.ENCRYPT_MODE) { 
+            cipher.init(Cipher.ENCRYPT_MODE, skeySpec, iv);
+        } else {
+            cipher.init(Cipher.DECRYPT_MODE, skeySpec, iv);
+        }
+        
+        return cipher;
+    }
+
+    /**
+     * Computes a Message authencitaion code for a given inputfile
+     * Takes in an initialised hmac which gets updated with the file's
+     * contents line by line. Once completed the doFinal method will 
+     * return a byte array with the computed Mac.
+     * 
+     * @param hmac Mac The initialised Mac object
+     * @param filePath Path The file path
+     * @return byte[] The file's computed Mac
+     */
+    private static byte[] computeMac(Mac hmac, Path filePath) {
+        try (InputStream fin = Files.newInputStream(filePath);) {
+            final byte[] bytes = new byte[1024];
+            for(int length = fin.read(bytes); length != -1; length = fin.read(bytes)){
+                hmac.update(bytes, 0, length);
+            }
+        } catch (IOException e) {
+            LOG.log(Level.SEVERE, "IOException caught - Please check filepath specified");
+            System.exit(0);
+        }
+
+        return hmac.doFinal();
+    }
+
+    /**
+     * A helper method for displayInformation, creates an Object array which cointans 
+     * a name and a value, which can be later used to display it on the console
+     * @return Object[] An array consisting of a name and value
+     */
+    private static Object[] getPair(String name, byte[] value) { return new Object[] {name, value}; }
+
+    /**
+     * Allows for the input of any number of object array created by the getPair method.
+     * Each object array with it's name and value are printed out in its Base64 encoded 
+     * version on the console. Method used for testing and marking purposes.
+     * 
+     * @param args Object[] Any number of Object arrays consisting of a name and a value
+     */
+    private static void displayInformation(Object[]... args) {
+        System.out.print("\n<---------------------------------------->\n");
+        for (Object[] o : args) {
+            System.out.println(o[0] + ": " + Base64.getEncoder().encodeToString((byte[]) o[1]));
+        }
+        System.out.print("<---------------------------------------->\n\n");
     }
 }
