@@ -10,6 +10,7 @@ import java.security.InvalidAlgorithmParameterException;
 import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
+import java.security.spec.InvalidKeySpecException;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.logging.Level;
@@ -19,9 +20,11 @@ import javax.crypto.CipherInputStream;
 import javax.crypto.CipherOutputStream;
 import javax.crypto.Mac;
 import javax.crypto.NoSuchPaddingException;
+import javax.crypto.SecretKey;
+import javax.crypto.SecretKeyFactory;
 import javax.crypto.spec.IvParameterSpec;
+import javax.crypto.spec.PBEKeySpec;
 import javax.crypto.spec.SecretKeySpec;
-
 
 /**
  *
@@ -34,29 +37,20 @@ public class FileEncryptor {
     private static final String ALGORITHM = "AES";
     private static final String HASH_AlGORITHM = "HmacSHA256";
     private static final String CIPHER = "AES/CBC/PKCS5PADDING";
+    private static final int ITERATION_COUNT = 100000;
 
     public static void main(String[] args) throws Exception {
         // Error Message
-        final String validCmdMsg = "Valid Encryption command: java FileEncryptor enc [Key] [inputFile] [outputFile]\n"
-        + "Valid Decryption command: java FileEncryptor dec [Key] [inputFile] [outputFile]\n"
-        + "Valid Key generation command: java FileEncryptor key\n"
-        + "NOTE: The key specified must be Base64 Encoded";
+        final String validCmdMsg = "Valid Encryption command: java FileEncryptor enc [Password] [inputFile] [outputFile]\n"
+        + "Valid Decryption command: java FileEncryptor dec [Password] [inputFile] [outputFile]\n";
 
-        if (args.length < 1) { throw new IllegalArgumentException("Not Enough Argunments specified\n" + validCmdMsg); }
+        if (args.length < 4) { throw new IllegalArgumentException("Not Enough Argunments specified\n" + validCmdMsg); }
 
         // Convert String arguments to char arrays
         char[][] charArgs = Util.getCharArguments(args);
 
         // Clear String argunments
         Arrays.fill(args, null);
-
-        // Generate and display key, for testing and marking purposes
-        if (Arrays.equals(charArgs[0], "key".toCharArray())) {
-            generateKey();
-            return;
-        }
-
-        if (charArgs.length < 4) { throw new IllegalArgumentException("Not Enough Argunments Provided\n" + validCmdMsg ); } 
 
         // Options Available
         char[] enc = "enc".toCharArray();
@@ -66,64 +60,58 @@ public class FileEncryptor {
             throw new IllegalArgumentException("Neither enc (encrypt) or dec (decrypt) option specified\n" + validCmdMsg);
         }
 
-        byte[] key = new byte[16];
-        try {
-            key = Base64.getDecoder().decode(Util.convertCharToByte(charArgs[1]));
-        } catch (IllegalArgumentException e) {
-            throw new IllegalArgumentException("Key provided must be Base64 encoded\n" + validCmdMsg);
-        }
-
         if (Arrays.equals(charArgs[0], enc)) { // Encrypt
-            encrypt(key, new String(charArgs[2]), new String(charArgs[3]));
+            encrypt(charArgs[1], new String(charArgs[2]), new String(charArgs[3]));
 
         } else if (Arrays.equals(charArgs[0], dec)) { // Decrypt
-            decrypt(key, new String(charArgs[2]), new String(charArgs[3]));
+            decrypt(charArgs[1], new String(charArgs[2]), new String(charArgs[3]));
         
         }
 
         // Tear Down, clear arrays
-        Arrays.fill(key, (byte) 0);
         Arrays.fill(enc, '\0'); Arrays.fill(dec, '\0');
 
         for (int i = 0; i < charArgs.length; i++) {
             Arrays.fill(charArgs[i], '\0');
         }
-        charArgs = null; key = null; dec = null; enc = null; 
+        charArgs = null; dec = null; enc = null; 
     }
 
     /**
      * Encrypts a plain text input file by outputing an encrypted version. It does this 
-     * generating a 128 bit secret key and initialisation vector which are used as the 
-     * specifications during the file encryption process. A message aithentication code 
-     * is also computed with the intialisaton vector and plaintext values, hence these 
-     * values can be checked for tampering during decryption.
+     * generating a secret key from a passowrd and an initialisation vector which are 
+     * used as the specifications during the file encryption process. A message 
+     * authentication code is also computed and initialised with the vector and plaintext 
+     * values, hence they can be checked for tampering during decryption.
      * 
-     * @param key byte[] The secrect key which will be used to encrypt the file
-     * @param inputPath - A String specifying the Input path of the plaintext file
-     * @param outputPath - A String specifying the Ouput path of the ciphertext file
+     * @param password char[] The password specified by the user
+     * @param inputPath String specifying the Input path of the plaintext file
+     * @param outputPath String specifying the Ouput path of the ciphertext file
      * @throws NoSuchAlgorithmException
      * @throws NoSuchPaddingException
      * @throws InvalidKeyException
      * @throws InvalidAlgorithmParameterException
      * @throws IOException
+     * @throws InvalidKeySpecException
      */
-    public static void encrypt(byte[] key, String inputPath, String outputPath) throws NoSuchAlgorithmException, 
-    NoSuchPaddingException, InvalidKeyException, InvalidAlgorithmParameterException, IOException {
-        //Generate Initilisation Vector
+    public static void encrypt(char[] password, String inputPath, String outputPath) throws NoSuchAlgorithmException, 
+    NoSuchPaddingException, InvalidKeyException, InvalidAlgorithmParameterException, IOException, InvalidKeySpecException {
+        //Generate vector and salts
+        final byte[] initVector = new byte[16], salt = new byte[16], macSalt = new byte[16];
+
         SecureRandom sr = new SecureRandom();
-        final byte[] initVector = new byte[16];
-        sr.nextBytes(initVector); // 16 bytes IV
+        sr.nextBytes(initVector); sr.nextBytes(salt); sr.nextBytes(macSalt);
 
-        // Initialize Vector and Keys
-        IvParameterSpec iv = new IvParameterSpec(initVector);
-        SecretKeySpec skeySpec = new SecretKeySpec(key, ALGORITHM);
-        SecretKeySpec macKey = new SecretKeySpec(key, HASH_AlGORITHM);
+        // Get Keys from password
+        final byte[] key = generateKey(password, salt, 128);
+        final byte[] macKey = generateKey(password, macSalt, 256);
 
-        // Initialize cipher and Mac
-        Cipher cipher = Cipher.getInstance(CIPHER);
-        cipher.init(Cipher.ENCRYPT_MODE, skeySpec, iv);
+        // Password no longer needed
+        Arrays.fill(password, '\0'); password = null;
+
+        SecretKeySpec macKeySpec = new SecretKeySpec(macKey, HASH_AlGORITHM);
         Mac hmac = Mac.getInstance(HASH_AlGORITHM);
-        hmac.init(macKey);
+        hmac.init(macKeySpec);
     
         File outputFile = new File(outputPath);    
         // Create the output file if it doesn't exist
@@ -133,17 +121,16 @@ public class FileEncryptor {
         final Path encryptedFile = Paths.get(outputPath);
 
         // Compute Mac for authentication
-        hmac.update(initVector);
-        final byte[] mac = computeMac(hmac, plaintextFile);
+        final byte[] mac = computeMac(hmac, plaintextFile, initVector, salt, macSalt);
 
-        // Display the Base64 encoded versions of Vector and computed mac
-        System.out.print("\n<---------------------------------------->\n");
-        System.out.println("IV is: " + Base64.getEncoder().encodeToString(initVector));
-        System.out.println("Computed Mac: " + Base64.getEncoder().encodeToString(mac));
-        System.out.print("<---------------------------------------->\n\n");
+        // Display the Base64 encoded versions of Key, Vector and computed mac
+        displayInformation(getPair("Secret Key", key), getPair("Init Vector", initVector), getPair("Salt", salt), 
+        getPair("Mac Key", macKey), getPair("Mac salt", macSalt), getPair("Computed Mac", mac));
+
+        Cipher cipher = createCipher(key, initVector, 1);
 
         // Write plaintext into ciphertext
-        if (writeEncryptedFile(plaintextFile, encryptedFile, cipher, mac)) {
+        if (writeEncryptedFile(plaintextFile, encryptedFile, cipher, salt, macSalt, mac)) {
             LOG.info("Encryption finished, saved at " + encryptedFile);
         } else {
             LOG.log(Level.WARNING, "Encryption Failed");
@@ -154,7 +141,7 @@ public class FileEncryptor {
      * Writes an encrypted version of the input file, into a new output file.
      * Uses a FileInputStream to read the plaintext file and wraps the OutputStream
      * with a CipherOutStream to write an encrypted version. Prior to writing the 
-     * encrypted data, IV and the computed mac is saved as metadata in the encrypted 
+     * encrypted data, IV, salts and the computed mac is saved as metadata in the encrypted 
      * file with the use of a FileOutputStream. Returns True if the encryption writing 
      * was successfull, False otherwise.
      *  
@@ -162,15 +149,16 @@ public class FileEncryptor {
      * @param outputPath Path The file path of the output file (ciphertext)
      * @param cipher Cipher The cipher instance initialized with the appropriate 
      * specifications in ENCRYPT mode
+     * @param salt byte[] The salt used to create key from password
+     * @param macSalt byte[] The salt used to create the macKey from password
      * @return boolean True if encryption successful False otherwise
      */
-    private static boolean writeEncryptedFile(Path inputPath, Path outputPath, Cipher cipher, byte[] mac) {
+    private static boolean writeEncryptedFile(Path inputPath, Path outputPath, Cipher cipher, byte[] salt, byte[] macSalt, byte[] mac) {
         try (InputStream fin = Files.newInputStream(inputPath);) {
             
             try (FileOutputStream fout = new FileOutputStream(outputPath.toFile());) {
                 // Write Metadata
-                fout.write(cipher.getIV());
-                fout.write(mac);
+                fout.write(cipher.getIV()); fout.write(salt); fout.write(macSalt); fout.write(mac);
 
                 try (CipherOutputStream cipherOut = new CipherOutputStream(fout, cipher);) {
                     final byte[] bytes = new byte[1024];
@@ -188,16 +176,185 @@ public class FileEncryptor {
     }
 
     /**
+     * Decrypts a given cipertext file into its original plaintext form. 
+     * A successful decryption occurs when provided with the right password
+     * to create the Cipher specifications required for decryption. The 
+     * decryption will also fail if any tampering were to be observed. 
+     * Will overwrite the resultant output file if it already exists.
+     * 
+     * @param password char[] The password specified by the user
+     * @param inputPath String The input file path (encrypted document)
+     * @param outputPath String The file path of the resultant decrypted text
+     * @throws NoSuchAlgorithmException
+     * @throws NoSuchPaddingException
+     * @throws InvalidKeyException
+     * @throws InvalidAlgorithmParameterException
+     * @throws IOException
+     * @throws InvalidKeySpecException
+     */
+    public static void decrypt(char[] password, String inputPath, String outputPath) throws IOException, 
+    NoSuchAlgorithmException, NoSuchPaddingException, InvalidKeyException, InvalidAlgorithmParameterException, 
+    InvalidKeySpecException{
+        
+        File outputFile = new File(outputPath);
+        // Create a new Output file if it doesn't exist
+        if (!outputFile.exists()) { outputFile.createNewFile(); }
+
+        final Path encryptedFile = Paths.get(inputPath);
+        final Path decryptedFile = Paths.get(outputPath);
+        
+        if (writeDecryptedFile(encryptedFile, decryptedFile, password)) {
+            LOG.info("Decryption complete, open " + decryptedFile);
+        } else {
+            LOG.log(Level.SEVERE, "Decryption failed: Ensure the correct Key and Files paths are specified");
+        }
+    }
+
+    /**
+     * Reads an encrypted file by wrapping an InputStream with a CipherInputStream
+     * The encrypted files gets decrypted and written out to the output file. 
+     * For a successful decryption the Cipher needs to be initialized in DECRYPT mode
+     * with the correct key and vector specifications. The IV, salts and mac is read 
+     * from the encrypted file as it was saved as metadata during the encryption process. 
+     * Decryption will also fail if the computed authentication code doesn't match with 
+     * the given authentication code.
+     * 
+     * @param inputPath Path The input file path (encrypted file)
+     * @param outputPath Path The output file path (decrypted file)
+     * @param password char[] The password entered by the user 
+     * @return boolean True if Decryption is successful False otherwise
+     * @throws NoSuchPaddingException
+     * @throws NoSuchAlgorithmException
+     * @throws InvalidKeyException
+     * @throws InvalidAlgorithmParameterException
+     * @throws InvalidKeySpecException
+     */
+    private static boolean writeDecryptedFile(Path inputPath, Path outputPath, char[] password) throws NoSuchAlgorithmException, 
+    NoSuchPaddingException, InvalidKeyException, InvalidAlgorithmParameterException, InvalidKeySpecException {
+        try (InputStream encryptedData = Files.newInputStream(inputPath);){
+        
+            // Read metadata from the input file
+            final byte[] initVector = new byte[16], salt = new byte[16], macSalt = new byte[16], givenMac = new byte[32];
+            
+            encryptedData.read(initVector); encryptedData.read(salt); encryptedData.read(macSalt); encryptedData.read(givenMac);
+
+            final byte[] key = generateKey(password, salt, 128);
+            final byte[] macKey = generateKey(password, macSalt, 256);
+
+            // Password no longer needed
+            Arrays.fill(password, '\0'); password = null;
+            
+            // Create key specifications
+            SecretKeySpec macKeySpec = new SecretKeySpec(macKey, HASH_AlGORITHM);
+            
+            // Initialise cipher 
+            Cipher cipher = createCipher(key, initVector, 2);
+
+            // Read cipertext data and write plaintext data
+            try (CipherInputStream decryptStream = new CipherInputStream(encryptedData, cipher);) {
+                try (OutputStream decryptedOut = Files.newOutputStream(outputPath);) {
+                    final byte[] bytes = new byte[1024];
+                    for(int length=decryptStream.read(bytes); length!=-1; length = decryptStream.read(bytes)){
+                        decryptedOut.write(bytes, 0, length);
+                    }
+                }
+            } 
+            
+            // Check authentication and file integerity
+            Mac hmac = Mac.getInstance(HASH_AlGORITHM);
+            hmac.init(macKeySpec);
+            final byte[] computedMac = computeMac(hmac, outputPath, initVector, salt, macSalt);
+            
+            if (!Arrays.equals(givenMac, computedMac)) {
+                throw new SecurityException("Authentication failed, file may have been tampered with");
+            } 
+            
+            // Display the Base64 encoded versions of the values used for decryption - for marking and testing
+            displayInformation(getPair("Secret Key", key), getPair("Init Vector", initVector), getPair("Salt", salt), 
+            getPair("Mac Key", macKey), getPair("Mac salt", macSalt), getPair("Computed Mac", computedMac), 
+            getPair("Given Mac", givenMac));
+            
+            LOG.info("Authentication passed, file integrity maintained");
+            
+        } catch (IOException ex) {
+            Logger.getLogger(FileEncryptor.class.getName()).log(Level.SEVERE, "IOException caught");
+            return false;
+        } 
+        return true;
+    }
+
+    /**
+     * Generates a Secret key with a specified password. The password is added with 
+     * a salt and iterated multiple times before being hased to increase entropy.
+     * The salt and key lenghts need to be specified to then return a secret key 
+     * encoded in a byte array. 
+     * 
+     * @param password char[] The password specified by the user
+     * @param salt byte[] A randomly gnerated set of bytes 
+     * @param keyLength int The lenght of the final key, in bits e.g. 128, 256 etc.
+     * @return byte[] An encoded byte array of the secret key
+     * @throws NoSuchAlgorithmException
+     * @throws InvalidKeySpecException
+     */
+    private static byte[] generateKey(char[] password, byte[] salt, int keyLength) throws NoSuchAlgorithmException, 
+    InvalidKeySpecException {
+        PBEKeySpec passwordKeySpec = new PBEKeySpec(password, salt, ITERATION_COUNT, keyLength);
+        SecretKeyFactory keyFactory = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256");
+        SecretKey secretKey = keyFactory.generateSecret(passwordKeySpec);
+        return secretKey.getEncoded();
+    }
+
+    /**
+     * Creates and initialises a Cipher with the specified key and initialisation vector.
+     * The cipher can be initialised in either Encrypt or Decrypt mode. The mode argument
+     * specifies which mode to initialise the cipher in. Only two values are accepted by 
+     * the 'mode' argunment, 1 for Encryptoin and 2 for Decryption
+     * 
+     * @param key byte[] The key to be used to generate the cipher
+     * @param initVector byte[] The IV to be used to create the cipher
+     * @param mode int The mode in which to initialise the cipher, Encrypt = 1; Decrypt = 2
+     * @return Cipher The initialised cipher in the specified mode
+     * @throws InvalidKeyException
+     * @throws InvalidAlgorithmParameterException
+     * @throws NoSuchAlgorithmException
+     * @throws NoSuchPaddingException
+     */
+    private static Cipher createCipher(byte[] key, byte[] initVector, int mode) throws InvalidKeyException, 
+    InvalidAlgorithmParameterException, NoSuchAlgorithmException, NoSuchPaddingException {
+        if (mode != 1 && mode != 2) { throw new IllegalArgumentException("Invalid Mode value, Encrypt = 1, Decrypt = 2"); }
+        
+        // Initialize Parameter specs
+        IvParameterSpec iv = new IvParameterSpec(initVector);
+        SecretKeySpec skeySpec = new SecretKeySpec(key, ALGORITHM);
+
+        // Initialize cipher 
+        Cipher cipher = Cipher.getInstance(CIPHER);
+        if (mode == Cipher.ENCRYPT_MODE) { 
+            cipher.init(Cipher.ENCRYPT_MODE, skeySpec, iv);
+        } else {
+            cipher.init(Cipher.DECRYPT_MODE, skeySpec, iv);
+        }
+        
+        return cipher;
+    }
+
+    /**
      * Computes a Message authencitaion code for a given inputfile
-     * Takes in an initialised hmac which gets updated with the file's
-     * contents line by line. Once completed the doFinal method will 
-     * return a byte array with the computed Mac.
+     * and any metadata that will be added to the file. Takes in an 
+     * initialised hmac which gets updated with the file's contents 
+     * line by line. Once completed the doFinal method will return a 
+     * byte array with the computed Mac.
      * 
      * @param hmac Mac The initialised Mac object
      * @param filePath Path The file path
+     * @param metadata byte[] Metadata that will be added to the input file
      * @return byte[] The file's computed Mac
      */
-    private static byte[] computeMac(Mac hmac, Path filePath) {
+    private static byte[] computeMac(Mac hmac, Path filePath, byte[]... metadata) {
+        // feed metadata into mac
+        for (byte[] data : metadata) { hmac.update(data); }
+        
+        // feed input file into mac
         try (InputStream fin = Files.newInputStream(filePath);) {
             final byte[] bytes = new byte[1024];
             for(int length = fin.read(bytes); length != -1; length = fin.read(bytes)){
@@ -212,114 +369,24 @@ public class FileEncryptor {
     }
 
     /**
-     * This function is invoked when the 'key' option is specified
-     * in the command line. Generates a random 128 bit key which 
-     * gets printed out in Base64 encoded form to the command line. 
-     * For marking purposes and ease of testing for Part 2.
+     * A helper method for displayInformation, creates an Object array which cointans 
+     * a name and a value, which can be later used to display it on the console
+     * @return Object[] An array consisting of a name and value
      */
-    private static void generateKey() {
-        SecureRandom sr = new SecureRandom();
-        byte[] key = new byte[16];
-        sr.nextBytes(key);
-        System.out.println("\nSecret Key is: " + Base64.getEncoder().encodeToString(key) + "\n");
-    }
+    private static Object[] getPair(String name, byte[] value) { return new Object[] {name, value}; }
 
     /**
-     * Decrypts a given cipertext file into its original plaintext form. 
-     * A successful decryption occurs when provided with the right key
-     * to create the Cipher specifications required for decryption. 
-     * Will overwrite the resultant output file if it already exists.
+     * Allows for the input of any number of object array created by the getPair method.
+     * Each object array with it's name and value are printed out in its Base64 encoded 
+     * version on the console. Method used for testing and marking purposes.
      * 
-     * @param key byte[] - The Key used to originally encrypt the input file 
-     * @param inputPath String - The input file path (encrypted document)
-     * @param outputPath String - The file path of the resultant decrypted text
-     * @throws NoSuchAlgorithmException
-     * @throws NoSuchPaddingException
-     * @throws InvalidKeyException
-     * @throws InvalidAlgorithmParameterException
-     * @throws IOException
+     * @param args Object[] Any number of Object arrays consisting of a name and a value
      */
-    public static void decrypt(byte[] key, String inputPath, String outputPath) throws IOException, 
-    NoSuchAlgorithmException, NoSuchPaddingException, InvalidKeyException, InvalidAlgorithmParameterException{
-        
-        File outputFile = new File(outputPath);
-        // Create a new Output file if it doesn't exist
-        if (!outputFile.exists()) { outputFile.createNewFile(); }
-
-        final Path encryptedFile = Paths.get(inputPath);
-        final Path decryptedFile = Paths.get(outputPath);
-        
-        if (writeDecryptedFile(encryptedFile, decryptedFile, key)) {
-            LOG.info("Decryption complete, open " + decryptedFile);
-        } else {
-            LOG.log(Level.SEVERE, "Decryption failed: Ensure the correct Key and Files paths are specified");
+    private static void displayInformation(Object[]... args) {
+        System.out.print("\n<---------------------------------------->\n");
+        for (Object[] o : args) {
+            System.out.println(o[0] + ": " + Base64.getEncoder().encodeToString((byte[]) o[1]));
         }
-    }
-
-    /**
-     * Reads an encrypted file by wrapping an InputStream with a CipherInputStream
-     * The encrypted files gets decrypted and written out to the output file. 
-     * For a successful decryption the Cipher needs to be initialized in DECRYPT mode
-     * with the correct key and vector specifications. The IV is read from the encrypted
-     * file as it was saved unencrypted during the encryption process. Decryption will 
-     * also fail if the computed authentication code doesn't match with the given 
-     * authentication code, which it also reads from the encrpted file.
-     * 
-     * @param inputPath Path The input file path (encrypted file)
-     * @param outputPath Path The output file path (decrypted file)
-     * @param key byte[] The secret key which will be used for decryption
-     * @return boolean True if Decryption is successful False otherwise
-     * @throws NoSuchPaddingException
-     * @throws NoSuchAlgorithmException
-     * @throws InvalidKeyException
-     * @throws InvalidAlgorithmParameterException
-     */
-    private static boolean writeDecryptedFile(Path inputPath, Path outputPath, byte[] key) throws NoSuchAlgorithmException, 
-    NoSuchPaddingException, InvalidKeyException, InvalidAlgorithmParameterException {
-        try (InputStream encryptedData = Files.newInputStream(inputPath);){
-        
-            // Read metadata from the input file
-            final byte[] initVector = new byte[16];
-            final byte[] givenMac = new byte[32];
-            
-            encryptedData.read(initVector);
-            encryptedData.read(givenMac);
-            
-            // Create key specifications
-            IvParameterSpec iv = new IvParameterSpec(initVector);
-            SecretKeySpec skeySpec = new SecretKeySpec(key, ALGORITHM);
-            SecretKeySpec macKey = new SecretKeySpec(key, HASH_AlGORITHM);
-            
-            // Initialise cipher 
-            Cipher cipher = Cipher.getInstance(CIPHER);
-            cipher.init(Cipher.DECRYPT_MODE, skeySpec, iv);
-
-            // Read cipertext data and write plaintext data
-            try (CipherInputStream decryptStream = new CipherInputStream(encryptedData, cipher);) {
-                try (OutputStream decryptedOut = Files.newOutputStream(outputPath);) {
-                    final byte[] bytes = new byte[1024];
-                    for(int length=decryptStream.read(bytes); length!=-1; length = decryptStream.read(bytes)){
-                        decryptedOut.write(bytes, 0, length);
-                    }
-                }
-            } 
-            
-            // Check authentication and file integerity
-            Mac hmac = Mac.getInstance(HASH_AlGORITHM);
-            hmac.init(macKey);
-
-            hmac.update(initVector);
-            byte[] computedMac = computeMac(hmac, outputPath);
-            if (!Arrays.equals(givenMac, computedMac)) {
-                throw new SecurityException("Authentication failed, file may have been tampered with");
-            } 
-                
-            LOG.info("Authentication passed, file integrity maintained");
-            
-        } catch (IOException ex) {
-            Logger.getLogger(FileEncryptor.class.getName()).log(Level.SEVERE, "IOException caught");
-            return false;
-        } 
-        return true;
+        System.out.print("<---------------------------------------->\n\n");
     }
 }
