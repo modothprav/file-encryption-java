@@ -26,9 +26,6 @@ import javax.crypto.spec.IvParameterSpec;
 import javax.crypto.spec.PBEKeySpec;
 import javax.crypto.spec.SecretKeySpec;
 
-
-
-
 /**
  *
  * @author Erik Costlow
@@ -82,10 +79,10 @@ public class FileEncryptor {
 
     /**
      * Encrypts a plain text input file by outputing an encrypted version. It does this 
-     * generating a 128 bit secret key and initialisation vector which are used as the 
-     * specifications during the file encryption process. A message aithentication code 
-     * is also computed with the intialisaton vector and plaintext values, hence these 
-     * values can be checked for tampering during decryption.
+     * generating a secret key from a passowrd and an initialisation vector which are 
+     * used as the specifications during the file encryption process. A message 
+     * authentication code is also computed and initialised with the vector and plaintext 
+     * values, hence they can be checked for tampering during decryption.
      * 
      * @param password char[] The password specified by the user
      * @param inputPath String specifying the Input path of the plaintext file
@@ -113,7 +110,6 @@ public class FileEncryptor {
         Arrays.fill(password, '\0'); password = null;
 
         SecretKeySpec macKeySpec = new SecretKeySpec(macKey, HASH_AlGORITHM);
-        
         Mac hmac = Mac.getInstance(HASH_AlGORITHM);
         hmac.init(macKeySpec);
     
@@ -125,8 +121,7 @@ public class FileEncryptor {
         final Path encryptedFile = Paths.get(outputPath);
 
         // Compute Mac for authentication
-        hmac.update(initVector); hmac.update(salt); hmac.update(macSalt);
-        final byte[] mac = computeMac(hmac, plaintextFile);
+        final byte[] mac = computeMac(hmac, plaintextFile, initVector, salt, macSalt);
 
         // Display the Base64 encoded versions of Key, Vector and computed mac
         displayInformation(getPair("Secret Key", key), getPair("Init Vector", initVector), getPair("Salt", salt), 
@@ -163,10 +158,7 @@ public class FileEncryptor {
             
             try (FileOutputStream fout = new FileOutputStream(outputPath.toFile());) {
                 // Write Metadata
-                fout.write(cipher.getIV());
-                fout.write(salt);
-                fout.write(macSalt);
-                fout.write(mac);
+                fout.write(cipher.getIV()); fout.write(salt); fout.write(macSalt); fout.write(mac);
 
                 try (CipherOutputStream cipherOut = new CipherOutputStream(fout, cipher);) {
                     final byte[] bytes = new byte[1024];
@@ -186,7 +178,8 @@ public class FileEncryptor {
     /**
      * Decrypts a given cipertext file into its original plaintext form. 
      * A successful decryption occurs when provided with the right password
-     * to create the Cipher specifications required for decryption. 
+     * to create the Cipher specifications required for decryption. The 
+     * decryption will also fail if any tampering were to be observed. 
      * Will overwrite the resultant output file if it already exists.
      * 
      * @param password char[] The password specified by the user
@@ -222,7 +215,7 @@ public class FileEncryptor {
      * The encrypted files gets decrypted and written out to the output file. 
      * For a successful decryption the Cipher needs to be initialized in DECRYPT mode
      * with the correct key and vector specifications. The IV, salts and mac is read 
-     * from the encrypted file as it was saved unencrypted during the encryption process. 
+     * from the encrypted file as it was saved as metadata during the encryption process. 
      * Decryption will also fail if the computed authentication code doesn't match with 
      * the given authentication code.
      * 
@@ -270,9 +263,7 @@ public class FileEncryptor {
             // Check authentication and file integerity
             Mac hmac = Mac.getInstance(HASH_AlGORITHM);
             hmac.init(macKeySpec);
-
-            hmac.update(initVector); hmac.update(salt); hmac.update(macSalt);
-            final byte[] computedMac = computeMac(hmac, outputPath);
+            final byte[] computedMac = computeMac(hmac, outputPath, initVector, salt, macSalt);
             
             if (!Arrays.equals(givenMac, computedMac)) {
                 throw new SecurityException("Authentication failed, file may have been tampered with");
@@ -349,15 +340,21 @@ public class FileEncryptor {
 
     /**
      * Computes a Message authencitaion code for a given inputfile
-     * Takes in an initialised hmac which gets updated with the file's
-     * contents line by line. Once completed the doFinal method will 
-     * return a byte array with the computed Mac.
+     * and any metadata that will be added to the file. Takes in an 
+     * initialised hmac which gets updated with the file's contents 
+     * line by line. Once completed the doFinal method will return a 
+     * byte array with the computed Mac.
      * 
      * @param hmac Mac The initialised Mac object
      * @param filePath Path The file path
+     * @param metadata byte[] Metadata that will be added to the input file
      * @return byte[] The file's computed Mac
      */
-    private static byte[] computeMac(Mac hmac, Path filePath) {
+    private static byte[] computeMac(Mac hmac, Path filePath, byte[]... metadata) {
+        // feed metadata into mac
+        for (byte[] data : metadata) { hmac.update(data); }
+        
+        // feed input file into mac
         try (InputStream fin = Files.newInputStream(filePath);) {
             final byte[] bytes = new byte[1024];
             for(int length = fin.read(bytes); length != -1; length = fin.read(bytes)){
