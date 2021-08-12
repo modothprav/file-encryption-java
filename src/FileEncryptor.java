@@ -34,17 +34,30 @@ import javax.crypto.spec.SecretKeySpec;
 public class FileEncryptor {
     private static final Logger LOG = Logger.getLogger(FileEncryptor.class.getSimpleName());
 
-    private static final String ALGORITHM = "AES";
+    private static final String DEFAULT_ALGORITHM = "AES";
+    private static final int DEFAULT_KEY_LENGTH = 128;
     private static final String HASH_AlGORITHM = "HmacSHA256";
-    private static final String CIPHER = "AES/CBC/PKCS5PADDING";
+    private static final String DEFAULT_CIPHER = "AES/CBC/PKCS5PADDING";
     private static final int ITERATION_COUNT = 100000;
 
-    public static void main(String[] args) throws Exception {
-        // Error Message
-        final String validCmdMsg = "Valid Encryption command: java FileEncryptor enc [Password] [inputFile] [outputFile]\n"
-        + "Valid Decryption command: java FileEncryptor dec [Password] [inputFile] [outputFile]\n";
+    private static String ALGORITHM;
+    private static String CIPHER;
+    private static int KEY_LENGTH;
+    private static int BLOCKSIZE;
 
-        if (args.length < 4) { throw new IllegalArgumentException("Not Enough Argunments specified\n" + validCmdMsg); }
+    // Error Message
+    private static final String validCmdMsg = "Valid Encryption commandL: java FileEncryptor enc [Passoword] [inputFile] [outputFile]\n"
+    + "Valid Encryption command: java FileEncryptor enc [Algorithm] [Key length] [Password] [inputFile] [outputFile]\n"
+    + "Valid Decryption command: java FileEncryptor dec [Password] [inputFile] [outputFile]\n"
+    + "Valid Info command: java FileEncryptor info [filePath]\n"
+    + "Valid Key lengths: 128. 448. 192. 32 etc"
+    + "NOTE: The only algorithms accepted are AES and Blowfish\n"
+    + "NOTE: Must specify a valid Key length (in bits) with respect to the algorithm specified\n"
+    + "NOTE: The default Algorithm being used is " + DEFAULT_ALGORITHM + " and the Default Key Length is " + DEFAULT_KEY_LENGTH;
+
+    public static void main(String[] args) throws Exception {
+
+        if (args.length < 2) { throw new IllegalArgumentException("Not Enough Argunments specified\n" + validCmdMsg); }
 
         // Convert String arguments to char arrays
         char[][] charArgs = Util.getCharArguments(args);
@@ -52,18 +65,67 @@ public class FileEncryptor {
         // Clear String argunments
         Arrays.fill(args, null);
 
+        if (Arrays.equals(charArgs[0], "info".toCharArray())) {
+            info(new String(charArgs[1]));
+            return;
+        }
+
+        if (charArgs.length < 4) { throw new IllegalArgumentException("Not Enough Argunments specified\n" + validCmdMsg); }
+
         // Options Available
         char[] enc = "enc".toCharArray();
         char[] dec = "dec".toCharArray();
 
         if (!Arrays.equals(charArgs[0], enc) && !Arrays.equals(charArgs[0], dec)) {
-            throw new IllegalArgumentException("Neither enc (encrypt) or dec (decrypt) option specified\n" + validCmdMsg);
+            throw new IllegalArgumentException("Neither enc (encrypt), dec (decrypt) or info option specified\n" + validCmdMsg);
         }
 
         if (Arrays.equals(charArgs[0], enc)) { // Encrypt
-            encrypt(charArgs[1], new String(charArgs[2]), new String(charArgs[3]));
+
+            char[] aes = "AES".toCharArray();
+            char [] blowfish = "Blowfish".toCharArray();
+
+            int argIndex = 1; // will get incremented everytime a valid argument is encountered
+            
+            // If no algorithm argument is specified the Default will be applied
+            if (Arrays.equals(charArgs[argIndex], aes) || Arrays.equals(charArgs[argIndex], blowfish)) {
+                ALGORITHM = new String(charArgs[1]);
+                CIPHER = ALGORITHM + "/CBC/PKCS5PADDING";
+                argIndex++;
+            } else {
+                ALGORITHM = DEFAULT_ALGORITHM;
+                CIPHER = DEFAULT_CIPHER;
+            }
+
+            // Determine blocksize for the IV 
+            if (ALGORITHM.equals("AES")) { BLOCKSIZE = 128; }
+            if (ALGORITHM.equals("Blowfish")) { BLOCKSIZE = 64; }
+
+            // If no Key length specified then the Default will be applied
+            try {
+                int keyLength = Integer.parseInt(new String(charArgs[argIndex]));
+                if (keyLength % 8 != 0) { throw new IllegalArgumentException("Invalid Key Length: not divisible by 8"); }
+                
+                if (ALGORITHM.equals("AES") && keyLength != 128 && keyLength != 192 && keyLength != 256) {
+                    throw new IllegalArgumentException("Invalid Key Length for AES Algorithm, valid key lengths are 128, 192 or 256 bits");
+                }
+
+                if (ALGORITHM.equals("Blowfish") && (keyLength < 32 || keyLength > 448)) {
+                    throw new IllegalArgumentException("Invalid Key Length for Blowfish Algorithm, valid key lengths are between 32-448 bits");
+                }
+
+                KEY_LENGTH = keyLength;
+
+                argIndex++;
+            } catch (NumberFormatException e) {
+                KEY_LENGTH = DEFAULT_KEY_LENGTH;
+            }
+
+            encrypt(charArgs[argIndex], new String(charArgs[argIndex + 1]), new String(charArgs[argIndex + 2]));
 
         } else if (Arrays.equals(charArgs[0], dec)) { // Decrypt
+            ALGORITHM = DEFAULT_ALGORITHM;
+            CIPHER = DEFAULT_CIPHER;
             decrypt(charArgs[1], new String(charArgs[2]), new String(charArgs[3]));
         
         }
@@ -97,13 +159,14 @@ public class FileEncryptor {
     public static void encrypt(char[] password, String inputPath, String outputPath) throws NoSuchAlgorithmException, 
     NoSuchPaddingException, InvalidKeyException, InvalidAlgorithmParameterException, IOException, InvalidKeySpecException {
         //Generate vector and salts
-        final byte[] initVector = new byte[16], salt = new byte[16], macSalt = new byte[16];
+        final byte[] initVector = new byte[BLOCKSIZE/8];
+        final byte[] salt = new byte[16], macSalt = new byte[16];
 
         SecureRandom sr = new SecureRandom();
         sr.nextBytes(initVector); sr.nextBytes(salt); sr.nextBytes(macSalt);
 
         // Get Keys from password
-        final byte[] key = generateKey(password, salt, 128);
+        final byte[] key = generateKey(password, salt, KEY_LENGTH);
         final byte[] macKey = generateKey(password, macSalt, 256);
 
         // Password no longer needed
@@ -281,6 +344,10 @@ public class FileEncryptor {
             return false;
         } 
         return true;
+    }
+
+    private static void info(String filepath) {
+        System.out.println("INVOKED INFO");
     }
 
     /**
