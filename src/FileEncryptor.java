@@ -357,6 +357,22 @@ public class FileEncryptor {
         return true;
     }
 
+    /**
+     * Allows the user to query metadata for a given file path. The file path 
+     * specified must point to an encrypted file with a .enc extension The metadata
+     * for the file must also follow a specific format as shown below.
+     * Metadata format:
+     *  int BLOCKSIZE
+     *  int KEY LENGTH (in bytes)
+     *  int Algorithm Length 
+     *  byte[] Algorithm name
+     *  byte[] IV
+     *  byte[] Salt
+     *  byte[] MacSalt
+     *  byte[] Computed Mac
+     * 
+     * @param String filepath The file being requested to be display the metadata
+     */
     private static void info(String filepath) {
         if (!filepath.contains(".enc")) { throw new IllegalArgumentException("Invalid file requested must be an encrypted file e.g. encrypted.enc"); }
 
