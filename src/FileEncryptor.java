@@ -1,4 +1,5 @@
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -25,6 +26,7 @@ import javax.crypto.SecretKeyFactory;
 import javax.crypto.spec.IvParameterSpec;
 import javax.crypto.spec.PBEKeySpec;
 import javax.crypto.spec.SecretKeySpec;
+
 
 /**
  *
@@ -130,6 +132,7 @@ public class FileEncryptor {
             encrypt(charArgs[argIndex], new String(charArgs[argIndex + 1]), new String(charArgs[argIndex + 2]));
 
         } else if (Arrays.equals(charArgs[0], dec)) { // Decrypt
+            if (charArgs.length > 4) { throw new IllegalArgumentException("Too many arguments specified for decryption" + ERROR_MSG); }
             decrypt(charArgs[1], new String(charArgs[2]), new String(charArgs[3]));
         
         }
@@ -354,8 +357,43 @@ public class FileEncryptor {
         return true;
     }
 
+    /**
+     * Allows the user to query metadata for a given file path. The file path 
+     * specified must point to an encrypted file with a .enc extension The metadata
+     * for the file must also follow a specific format as shown below.
+     * Metadata format:
+     *  int BLOCKSIZE
+     *  int KEY LENGTH (in bytes)
+     *  int Algorithm Length 
+     *  byte[] Algorithm name
+     *  byte[] IV
+     *  byte[] Salt
+     *  byte[] MacSalt
+     *  byte[] Computed Mac
+     * 
+     * @param String filepath The file being requested to be display the metadata
+     */
     private static void info(String filepath) {
-        System.out.println("INVOKED INFO");
+        if (!filepath.contains(".enc")) { throw new IllegalArgumentException("Invalid file requested must be an encrypted file e.g. encrypted.enc"); }
+
+        try (InputStream fin = new FileInputStream(new File(filepath))) {
+            BLOCKSIZE = fin.read(); KEY_LENGTH = fin.read() * 8; int algoLength = fin.read();
+            ALGORITHM = new String(fin.readNBytes(algoLength));
+
+            final byte[] initVector = new byte[BLOCKSIZE/8], salt = new byte[16], macSalt = new byte[16], givenMac = new byte[32];
+            fin.read(initVector); fin.read(salt); fin.read(macSalt); fin.read(givenMac);
+
+            System.out.println("\nMetadata for file: " + filepath);
+
+            System.out.print("\n<---------------------------------------->\n");
+            System.out.print("Algorithm: " + ALGORITHM + "\nKey length: " + KEY_LENGTH + "\nBlocksize: " + BLOCKSIZE);
+
+            displayInformation(getPair("Init Vector", initVector), getPair("Salt", salt), 
+            getPair("Mac salt", macSalt), getPair("Computed Mac", givenMac));
+
+        } catch (IOException e) {
+            LOG.warning("Please enter a valid filepath");
+        }
     }
 
     /**
