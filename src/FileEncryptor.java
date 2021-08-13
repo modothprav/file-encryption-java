@@ -4,6 +4,7 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -42,10 +43,8 @@ public class FileEncryptor {
     private static final String DEFAULT_CIPHER = "AES/CBC/PKCS5PADDING";
     private static final int ITERATION_COUNT = 100000;
 
-    private static String ALGORITHM;
-    private static String CIPHER;
-    private static int KEY_LENGTH;
-    private static int BLOCKSIZE;
+    private static String ALGORITHM, CIPHER;
+    private static int KEY_LENGTH, BLOCKSIZE;
 
     // Error Message
     private static final String ERROR_MSG = "\nValid Encryption command: java FileEncryptor enc [Passoword] [inputFile] [outputFile]\n"
@@ -78,8 +77,7 @@ public class FileEncryptor {
         if (charArgs.length < 4) { throw new IllegalArgumentException("Not Enough Argunments specified\n" + ERROR_MSG); }
 
         // Options Available
-        char[] enc = "enc".toCharArray();
-        char[] dec = "dec".toCharArray();
+        char[] enc = "enc".toCharArray(), dec = "dec".toCharArray();
 
         if (!Arrays.equals(charArgs[0], enc) && !Arrays.equals(charArgs[0], dec)) {
             throw new IllegalArgumentException("Neither enc (encrypt), dec (decrypt) or info option specified\n" + ERROR_MSG);
@@ -87,12 +85,11 @@ public class FileEncryptor {
 
         if (Arrays.equals(charArgs[0], enc)) { // Encrypt
 
-            char[] aes = "AES".toCharArray();
-            char [] blowfish = "Blowfish".toCharArray();
+            char[] aes = "AES".toCharArray(), blowfish = "Blowfish".toCharArray();
 
             int argIndex = 1; // will get incremented everytime a valid argument is encountered
             
-            // If no or incompatiable algorithm argument is specified the Default will be applied
+            // If incompatiable or no algorithm argument is specified the Default will be applied
             if (Arrays.equals(charArgs[argIndex], aes) || Arrays.equals(charArgs[argIndex], blowfish)) {
                 ALGORITHM = new String(charArgs[1]);
                 CIPHER = ALGORITHM + "/CBC/PKCS5PADDING";
@@ -134,7 +131,6 @@ public class FileEncryptor {
         } else if (Arrays.equals(charArgs[0], dec)) { // Decrypt
             if (charArgs.length > 4) { throw new IllegalArgumentException("Too many arguments specified for decryption" + ERROR_MSG); }
             decrypt(charArgs[1], new String(charArgs[2]), new String(charArgs[3]));
-        
         }
 
         // Tear Down, clear arrays
@@ -189,8 +185,14 @@ public class FileEncryptor {
         final Path plaintextFile = Paths.get(inputPath);
         final Path encryptedFile = Paths.get(outputPath);
 
+        // Convert int to byte array to feed into Hmac
+        final byte[] blocksize = ByteBuffer.allocate(8).putInt(BLOCKSIZE).array();
+        final byte[] keyLength = ByteBuffer.allocate(8).putInt(KEY_LENGTH/8).array();
+        final byte[] algoLength = ByteBuffer.allocate(8).putInt(ALGORITHM.getBytes().length).array();
+        
         // Compute Mac for authentication
-        final byte[] mac = computeMac(hmac, plaintextFile, initVector, salt, macSalt);
+        final byte[] mac = computeMac(hmac, plaintextFile, blocksize, keyLength, algoLength,
+        ALGORITHM.getBytes(), initVector, salt, macSalt);
 
         // Display the Base64 encoded versions of Key, Vector and computed mac
         displayInformation(getPair("Secret Key", key), getPair("Init Vector", initVector), getPair("Salt", salt), 
@@ -227,8 +229,8 @@ public class FileEncryptor {
             
             try (FileOutputStream fout = new FileOutputStream(outputPath.toFile());) {
                 // Write Metadata
-                final byte[] algorithm = Util.convertCharToByte(ALGORITHM.toCharArray());
-    
+                final byte[] algorithm = ALGORITHM.getBytes();
+
                 fout.write(BLOCKSIZE); fout.write(KEY_LENGTH/8); fout.write(algorithm.length);
                 fout.write(algorithm); fout.write(cipher.getIV()); fout.write(salt); 
                 fout.write(macSalt); fout.write(mac);
@@ -337,7 +339,14 @@ public class FileEncryptor {
             // Check authentication and file integerity
             Mac hmac = Mac.getInstance(HASH_AlGORITHM);
             hmac.init(macKeySpec);
-            final byte[] computedMac = computeMac(hmac, outputPath, initVector, salt, macSalt);
+
+            // Convert int to byte array to feed into mac
+            final byte[] blocksize = ByteBuffer.allocate(8).putInt(BLOCKSIZE).array();
+            final byte[] keyLength = ByteBuffer.allocate(8).putInt(KEY_LENGTH/8).array();
+            final byte[] algoLengthArry = ByteBuffer.allocate(8).putInt(ALGORITHM.getBytes().length).array();
+
+            final byte[] computedMac = computeMac(hmac, outputPath, blocksize, keyLength, 
+            algoLengthArry, ALGORITHM.getBytes(), initVector, salt, macSalt);
             
             if (!Arrays.equals(givenMac, computedMac)) {
                 throw new SecurityException("Authentication failed, file may have been tampered with");
