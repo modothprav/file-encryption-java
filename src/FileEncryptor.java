@@ -4,6 +4,7 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -189,8 +190,14 @@ public class FileEncryptor {
         final Path plaintextFile = Paths.get(inputPath);
         final Path encryptedFile = Paths.get(outputPath);
 
+        // Convert int to byte array to feed into Hmac
+        final byte[] blocksize = ByteBuffer.allocate(8).putInt(BLOCKSIZE).array();
+        final byte[] keyLength = ByteBuffer.allocate(8).putInt(KEY_LENGTH/8).array();
+        final byte[] algoLength = ByteBuffer.allocate(8).putInt(ALGORITHM.getBytes().length).array();
+        
         // Compute Mac for authentication
-        final byte[] mac = computeMac(hmac, plaintextFile, initVector, salt, macSalt);
+        final byte[] mac = computeMac(hmac, plaintextFile, blocksize, keyLength, algoLength,
+        ALGORITHM.getBytes(), initVector, salt, macSalt);
 
         // Display the Base64 encoded versions of Key, Vector and computed mac
         displayInformation(getPair("Secret Key", key), getPair("Init Vector", initVector), getPair("Salt", salt), 
@@ -227,8 +234,8 @@ public class FileEncryptor {
             
             try (FileOutputStream fout = new FileOutputStream(outputPath.toFile());) {
                 // Write Metadata
-                final byte[] algorithm = Util.convertCharToByte(ALGORITHM.toCharArray());
-    
+                final byte[] algorithm = ALGORITHM.getBytes();
+
                 fout.write(BLOCKSIZE); fout.write(KEY_LENGTH/8); fout.write(algorithm.length);
                 fout.write(algorithm); fout.write(cipher.getIV()); fout.write(salt); 
                 fout.write(macSalt); fout.write(mac);
@@ -337,7 +344,14 @@ public class FileEncryptor {
             // Check authentication and file integerity
             Mac hmac = Mac.getInstance(HASH_AlGORITHM);
             hmac.init(macKeySpec);
-            final byte[] computedMac = computeMac(hmac, outputPath, initVector, salt, macSalt);
+
+            // Convert int to byte array to feed into mac
+            final byte[] blocksize = ByteBuffer.allocate(8).putInt(BLOCKSIZE).array();
+            final byte[] keyLength = ByteBuffer.allocate(8).putInt(KEY_LENGTH/8).array();
+            final byte[] algoLengthArry = ByteBuffer.allocate(8).putInt(ALGORITHM.getBytes().length).array();
+
+            final byte[] computedMac = computeMac(hmac, outputPath, blocksize, keyLength, 
+            algoLengthArry, ALGORITHM.getBytes(), initVector, salt, macSalt);
             
             if (!Arrays.equals(givenMac, computedMac)) {
                 throw new SecurityException("Authentication failed, file may have been tampered with");
