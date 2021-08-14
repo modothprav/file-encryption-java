@@ -28,7 +28,6 @@ import javax.crypto.spec.IvParameterSpec;
 import javax.crypto.spec.PBEKeySpec;
 import javax.crypto.spec.SecretKeySpec;
 
-
 /**
  *
  * @author Erik Costlow
@@ -146,7 +145,7 @@ public class FileEncryptor {
      * Encrypts a plain text input file by outputing an encrypted version. It does this 
      * generating a secret key from a passowrd and an initialisation vector which are 
      * used as the specifications during the file encryption process. A message 
-     * authentication code is also computed and initialised with the vector and plaintext 
+     * authentication code is also computed and initialised with the metadata and plaintext 
      * values, hence they can be checked for tampering during decryption.
      * 
      * @param password char[] The password specified by the user
@@ -199,6 +198,9 @@ public class FileEncryptor {
         getPair("Mac Key", macKey), getPair("Mac salt", macSalt), getPair("Computed Mac", mac));
 
         Cipher cipher = createCipher(key, initVector, 1);
+
+        // Keys no longer needed clearing keys
+        Arrays.fill(key, (byte) 0); Arrays.fill(macKey, (byte) 0);
 
         // Write plaintext into ciphertext
         if (writeEncryptedFile(plaintextFile, encryptedFile, cipher, salt, macSalt, mac)) {
@@ -289,10 +291,10 @@ public class FileEncryptor {
      * Reads an encrypted file by wrapping an InputStream with a CipherInputStream
      * The encrypted files gets decrypted and written out to the output file. 
      * For a successful decryption the Cipher needs to be initialized in DECRYPT mode
-     * with the correct key and vector specifications. The IV, salts and mac is read 
-     * from the encrypted file as it was saved as metadata during the encryption process. 
+     * with the correct key and vector specifications. The metadata embeded is read 
+     * from the encrypted file which was saved/written during the encryption process. 
      * Decryption will also fail if the computed authentication code doesn't match with 
-     * the given authentication code.
+     * the given message authentication code.
      * 
      * @param inputPath Path The input file path (encrypted file)
      * @param outputPath Path The output file path (decrypted file)
@@ -356,6 +358,9 @@ public class FileEncryptor {
             displayInformation(getPair("Secret Key", key), getPair("Init Vector", initVector), getPair("Salt", salt), 
             getPair("Mac Key", macKey), getPair("Mac salt", macSalt), getPair("Computed Mac", computedMac), 
             getPair("Given Mac", givenMac));
+
+            // Keys no longer needed clearing keys
+            Arrays.fill(key, (byte) 0); Arrays.fill(macKey, (byte) 0);
             
             LOG.info("Authentication passed, file integrity maintained");
             
@@ -370,6 +375,7 @@ public class FileEncryptor {
      * Allows the user to query metadata for a given file path. The file path 
      * specified must point to an encrypted file with a .enc extension The metadata
      * for the file must also follow a specific format as shown below.
+     * 
      * Metadata format:
      *  int BLOCKSIZE
      *  int KEY LENGTH (in bytes)
@@ -380,7 +386,7 @@ public class FileEncryptor {
      *  byte[] MacSalt
      *  byte[] Computed Mac
      * 
-     * @param String filepath The file being requested to be display the metadata
+     * @param filepath String The file being requested to be display the metadata
      */
     private static void info(String filepath) {
         if (!filepath.contains(".enc")) { throw new IllegalArgumentException("Invalid file requested must be an encrypted file e.g. encrypted.enc"); }
