@@ -124,7 +124,7 @@ public class FileEncryptor {
 
             // Check if password and/or file paths have been specified
             if (argIndex + 2 >= charArgs.length) { throw new IllegalArgumentException("Not enough arguments specified" + ERROR_MSG); }
-            if (argIndex + 2 <= charArgs.length) { throw new IllegalArgumentException("Invalid arguments please refer to instructions" + ERROR_MSG); }
+            if (argIndex + 2 < charArgs.length - 1) { throw new IllegalArgumentException("Invalid arguments please refer to instructions" + ERROR_MSG); }
 
             encrypt(charArgs[argIndex], new String(charArgs[argIndex + 1]), new String(charArgs[argIndex + 2]));
 
