@@ -1,14 +1,10 @@
-## Getting Started
+## Java File Encryptor 
 
-Welcome to the VS Code Java world. Here is a guideline to help you get started to write Java code in Visual Studio Code.
+The Objective of this project was to learn how to use the Java Cryptography Extension (JCE) to perform symmetric file encryption and decryption. Additionally password-based encryption and implementation for changes in recommended key lengths and algorithms were also added. 
 
 ## Folder Structure
 
-The workspace contains two folders by default, where:
+The project contains two folders 
 
-- `src`: the folder to maintain sources
-- `lib`: the folder to maintain dependencies
-
-## Dependency Management
-
-The `JAVA PROJECTS` view allows you to manage your dependencies. More details can be found [here](https://github.com/microsoft/vscode-java-dependency#manage-dependencies).
+- `src`: the folder has the FileEncryptor.java where majority of the project functionality resides and a Util.java file with some utility fuctions.
+- `resources`: this folder is used to store all the input and output files i.e. the plaintext and ciphertext files.
